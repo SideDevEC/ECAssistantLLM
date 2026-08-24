@@ -31,7 +31,8 @@ public sealed class LlmHttpServer : IDisposable
         InferenceScheduler scheduler,
         VramBudget vramBudget,
         ClientManager clientManager,
-        ILogger logger)
+        ILogger logger,
+        CancellationTokenSource? externalCts = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _modelHost = modelHost ?? throw new ArgumentNullException(nameof(modelHost));
@@ -41,9 +42,12 @@ public sealed class LlmHttpServer : IDisposable
         _clientManager = clientManager ?? throw new ArgumentNullException(nameof(clientManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
+        // Use external CTS if provided (from Program.cs for shutdown coordination)
+        _cts = externalCts ?? CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
+
         _router = new RequestRouter(
             _modelHost, _sessionRegistry, _scheduler, _vramBudget,
-            _clientManager, _config, _logger);
+            _clientManager, _config, _logger, _cts);
 
         _listener.Prefixes.Add(_config.Server.Prefix);
     }

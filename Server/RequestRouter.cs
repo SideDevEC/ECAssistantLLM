@@ -19,6 +19,7 @@ public sealed class RequestRouter
     private readonly ClientManager _clients;
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
+    private readonly CancellationTokenSource _cts;
 
     public RequestRouter(
         MultiModelHost models,
@@ -27,7 +28,8 @@ public sealed class RequestRouter
         VramBudget vram,
         ClientManager clients,
         LlmServerConfig config,
-        ILogger logger)
+        ILogger logger,
+        CancellationTokenSource cts)
     {
         _models = models;
         _sessions = sessions;
@@ -36,6 +38,7 @@ public sealed class RequestRouter
         _clients = clients;
         _config = config;
         _logger = logger;
+        _cts = cts;
     }
 
     public async Task RouteAsync(HttpListenerContext ctx, CancellationToken ct)
@@ -77,6 +80,10 @@ public sealed class RequestRouter
 
         if (path.StartsWith("/eca/clients/") && method == "DELETE")
         { await HandleDisconnectClientAsync(ctx, ExtractClientIdFromPath(path)); return; }
+
+        // Server shutdown (explicit request from Core)
+        if (path == "/eca/shutdown" && method == "POST")
+        { await HandleShutdownAsync(ctx, clientId); return; }
 
         // Session / KV cache
         if (path == "/eca/sessions" && method == "POST")
@@ -332,6 +339,37 @@ public sealed class RequestRouter
         }
 
         await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Message = "Disconnected" });
+    }
+
+    /// <summary>
+    /// Handle explicit shutdown request from a client.
+    /// Disconnects the client, then triggers server shutdown if this was the last client.
+    /// The server will wind down gracefully after responding.
+    /// </summary>
+    private async Task HandleShutdownAsync(HttpListenerContext ctx, string? clientId)
+    {
+        _logger.Info("Router", $"Shutdown requested by client {clientId}");
+
+        // Disconnect the requesting client first
+        if (!string.IsNullOrEmpty(clientId))
+            _clients.Disconnect(clientId);
+
+        // Respond OK before shutting down
+        await SseStreamer.WriteJsonAsync(ctx.Response,
+            new SuccessResponse { Message = "Shutting down" });
+
+        // If no clients remain, trigger shutdown
+        if (_clients.ClientCount == 0)
+        {
+            _logger.Info("Router", "Last client shutdown — winding down server...");
+            // Small delay to let the response flush
+            await Task.Delay(100);
+            _cts.Cancel();
+        }
+        else
+        {
+            _logger.Info("Router", $"Shutdown skipped — {_clients.ClientCount} client(s) still connected");
+        }
     }
 
     private async Task HandleCreateSessionAsync(HttpListenerContext ctx, string? clientId, CancellationToken ct)

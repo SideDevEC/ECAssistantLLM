@@ -23,6 +23,13 @@ public sealed class ServerSection
     [JsonPropertyName("max_vram_mb")]
     public int? MaxVramMb { get; set; }
 
+    /// <summary>
+    /// If true, server shuts down when the last client disconnects.
+    /// Default: true — server winds down on last client exit.
+    /// </summary>
+    [JsonPropertyName("shutdown_on_last_client")]
+    public bool ShutdownOnLastClient { get; set; } = true;
+
     [JsonPropertyName("heartbeat_timeout_sec")]
     public int HeartbeatTimeoutSec { get; set; } = 90;
 

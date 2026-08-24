@@ -4,6 +4,8 @@ namespace ECAssistant.LLM.Engine;
 
 /// <summary>
 /// Manages client connections: registration, heartbeat, eviction.
+/// When the last client disconnects and ShutdownOnLastClient is true,
+/// triggers the server shutdown callback.
 /// </summary>
 public sealed class ClientManager
 {
@@ -12,12 +14,25 @@ public sealed class ClientManager
     private readonly ILogger _logger;
     private readonly int _heartbeatTimeoutSec;
     private readonly Timer _evictionTimer;
+    private readonly bool _shutdownOnLastClient;
+    private readonly Action? _onLastClientDisconnected;
 
     public ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger)
+        : this(sessionRegistry, config, logger, onLastClientDisconnected: null)
+    {
+    }
+
+    public ClientManager(
+        SessionRegistry sessionRegistry,
+        ECAssistant.LLM.Config.LlmServerConfig config,
+        ILogger logger,
+        Action? onLastClientDisconnected)
     {
         _sessionRegistry = sessionRegistry ?? throw new ArgumentNullException(nameof(sessionRegistry));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _heartbeatTimeoutSec = config.Server.HeartbeatTimeoutSec;
+        _shutdownOnLastClient = config.Server.ShutdownOnLastClient;
+        _onLastClientDisconnected = onLastClientDisconnected;
 
         _evictionTimer = new Timer(EvictStaleClients, null,
             TimeSpan.FromSeconds(_heartbeatTimeoutSec),
@@ -54,6 +69,8 @@ public sealed class ClientManager
 
     /// <summary>
     /// Disconnect a client (frees all its sessions).
+    /// If this was the last client and ShutdownOnLastClient is true,
+    /// triggers the server shutdown callback.
     /// </summary>
     public bool Disconnect(string clientId)
     {
@@ -62,6 +79,14 @@ public sealed class ClientManager
 
         var freed = _sessionRegistry.DestroyClientSessions(clientId);
         _logger.Info("ClientManager", $"Disconnected client '{record.Name}' ({clientId}), freed {freed} session(s)");
+
+        // Check if this was the last client
+        if (_clients.IsEmpty && _shutdownOnLastClient)
+        {
+            _logger.Info("ClientManager", "Last client disconnected — triggering server shutdown");
+            _onLastClientDisconnected?.Invoke();
+        }
+
         return true;
     }
 
@@ -97,6 +122,13 @@ public sealed class ClientManager
                     $"Evicted stale client '{record.Name}' ({kvp.Key}) — " +
                     $"last heartbeat {record.LastHeartbeat:HH:mm:ss}, freed {freed} session(s)");
             }
+        }
+
+        // Also check: all clients evicted, should we shut down?
+        if (_clients.IsEmpty && _shutdownOnLastClient)
+        {
+            _logger.Info("ClientManager", "All clients evicted — triggering server shutdown");
+            _onLastClientDisconnected?.Invoke();
         }
     }
 

@@ -47,6 +47,7 @@ logger.Info("Main", $"ECAssistantLLM v1.0.0");
 logger.Info("Main", $"Config: {configPath}");
 logger.Info("Main", $"Server: {config.Server.Host}:{config.Server.Port}");
 logger.Info("Main", $"Models configured: {config.Models.Count}");
+logger.Info("Main", $"Shutdown on last client: {config.Server.ShutdownOnLastClient}");
 
 // ── Initialize components ──
 var modelHost = new MultiModelHost(config, logger);
@@ -66,16 +67,26 @@ catch (Exception ex)
 }
 
 var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger);
-var clientManager = new ClientManager(sessionRegistry, config, logger);
 
-var server = new LlmHttpServer(config, modelHost, sessionRegistry, scheduler, vramBudget, clientManager, logger);
-
-// ── Handle shutdown ──
+// ── Shutdown coordination ──
 var cts = new CancellationTokenSource();
+
+// ClientManager triggers this when the last client disconnects
+void OnLastClientDisconnected()
+{
+    logger.Info("Main", "Last client left — shutting down server...");
+    cts.Cancel();
+}
+
+var clientManager = new ClientManager(sessionRegistry, config, logger, OnLastClientDisconnected);
+
+var server = new LlmHttpServer(config, modelHost, sessionRegistry, scheduler, vramBudget, clientManager, logger, cts);
+
+// ── Handle external shutdown signals ──
 Console.CancelKeyPress += (_, e) =>
 {
     e.Cancel = true;
-    logger.Info("Main", "Shutdown signal received...");
+    logger.Info("Main", "Shutdown signal received (Ctrl+C)...");
     cts.Cancel();
 };
 
@@ -90,6 +101,11 @@ logger.Info("Main", "Starting server...");
 try
 {
     await server.RunAsync(cts.Token);
+}
+catch (OperationCanceledException)
+{
+    // Normal shutdown
+    logger.Info("Main", "Shutdown complete.");
 }
 catch (Exception ex)
 {
