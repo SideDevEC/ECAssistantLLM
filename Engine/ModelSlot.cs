@@ -1,0 +1,157 @@
+using LLama;
+using LLama.Common;
+using LLama.Native;
+using ECAssistant.LLM.Config;
+
+namespace ECAssistant.LLM.Engine;
+
+/// <summary>
+/// One loaded model: weights + params + status.
+/// Managed by MultiModelHost.
+/// </summary>
+public sealed class ModelSlot : IDisposable
+{
+    private readonly ILogger _logger;
+    private bool _disposed;
+
+    /// <summary>Unique model ID (used in OpenAI "model" field).</summary>
+    public string Id { get; }
+
+    /// <summary>Config this slot was created from.</summary>
+    public ModelConfig Config { get; }
+
+    /// <summary>Loaded model weights. null if not yet loaded or disposed.</summary>
+    public LLamaWeights? Weights { get; private set; }
+
+    /// <summary>Model params used to load weights.</summary>
+    public ModelParams Params { get; private set; }
+
+    /// <summary>Whether weights are loaded and ready.</summary>
+    public bool IsLoaded => Weights != null && !_disposed;
+
+    /// <summary>Whether this is an embedding model.</summary>
+    public bool IsEmbedding => Config.IsEmbedding;
+
+    /// <summary>Optional embedder instance for embedding models.</summary>
+    public LLamaEmbedder? Embedder { get; private set; }
+
+    /// <summary>Vector dimension for embedding models (0 until first embed call).</summary>
+    public int EmbeddingDim { get; private set; }
+
+    public ModelSlot(string id, ModelConfig config, ILogger logger)
+    {
+        Id = id ?? throw new ArgumentNullException(nameof(id));
+        Config = config ?? throw new ArgumentNullException(nameof(config));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        Params = CreateModelParams(config);
+    }
+
+    /// <summary>
+    /// Load model weights from disk into memory.
+    /// </summary>
+    public void Load()
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(ModelSlot));
+        if (Weights != null)
+            return;
+
+        var resolvedPath = ResolveModelPath(Config.Path);
+        Params = CreateModelParams(Config, resolvedPath);
+
+        try
+        {
+            Weights = LLamaWeights.LoadFromFile(Params);
+
+            if (Config.IsEmbedding)
+            {
+                Embedder = new LLamaEmbedder(Weights, Params);
+                // Determine embedding dimension from a test call
+                var testEmbeds = Embedder.GetEmbeddings("dimension test").Result;
+                EmbeddingDim = testEmbeds.Single().Length;
+            }
+
+            _logger.Info("ModelSlot", $"Loaded model '{Id}' from {resolvedPath} " +
+                $"(gpu_layers={Config.GpuLayers}, ctx={Config.ContextSize}" +
+                (Config.IsEmbedding ? $", embed_dim={EmbeddingDim}" : "") + ")");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("ModelSlot", $"Failed to load model '{Id}' from {resolvedPath}: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Unload weights (frees memory) but keep the slot (can re-load later).
+    /// </summary>
+    public void Unload()
+    {
+        Embedder?.Dispose();
+        Embedder = null;
+        Weights?.Dispose();
+        Weights = null;
+        _logger.Info("ModelSlot", $"Unloaded model '{Id}'");
+    }
+
+    private static ModelParams CreateModelParams(ModelConfig config, string? resolvedPath = null)
+    {
+        var path = resolvedPath ?? config.Path;
+        var mp = new ModelParams(path)
+        {
+            GpuLayerCount = Math.Clamp(config.GpuLayers, 0, 100),
+            ContextSize = config.ContextSize,
+            Threads = config.Threads == -1 ? null : config.Threads,
+        };
+
+        if (config.BatchSize > 0)
+            mp.BatchSize = config.BatchSize;
+
+        if (config.IsEmbedding)
+        {
+            mp.PoolingType = config.PoolingType.ToLower() switch
+            {
+                "mean" => LLamaPoolingType.Mean,
+                "cls" => LLamaPoolingType.CLS,
+                "last" => LLamaPoolingType.Last,
+                "none" => LLamaPoolingType.None,
+                _ => LLamaPoolingType.Mean
+            };
+        }
+
+        return mp;
+    }
+
+    private static string ResolveModelPath(string path)
+    {
+        if (Path.IsPathRooted(path) && File.Exists(path))
+            return path;
+
+        // Try relative to config file directory (parent of llm-server.json, set by caller)
+        var dirs = new[]
+        {
+            AppContext.BaseDirectory,
+            Directory.GetCurrentDirectory(),
+            Path.Combine(AppContext.BaseDirectory, "models"),
+            Path.Combine(Directory.GetCurrentDirectory(), "models"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "models"),
+        };
+
+        foreach (var dir in dirs)
+        {
+            var full = Path.Combine(dir, path);
+            if (File.Exists(full))
+                return full;
+        }
+
+        return Path.IsPathRooted(path) ? path : Path.Combine(Directory.GetCurrentDirectory(), path);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Unload();
+    }
+}
