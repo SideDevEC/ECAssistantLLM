@@ -83,6 +83,16 @@ public sealed class LlmHttpServer : IDisposable
                 {
                     await _router.RouteAsync(ctx, _cts.Token);
                 }
+                catch (System.Text.Json.JsonException)
+                {
+                    try
+                    {
+                        await SseStreamer.WriteJsonAsync(ctx.Response,
+                            new ErrorResponse { Error = new() { Message = "Invalid JSON body", Type = "invalid_request" } },
+                            400);
+                    }
+                    catch { /* response may already be sent */ }
+                }
                 catch (Exception ex)
                 {
                     _logger.Error("Server", $"Unhandled error: {ex.Message}");

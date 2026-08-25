@@ -70,6 +70,59 @@ public static class SseStreamer
     }
 
     /// <summary>
+    /// Stream tokens as SSE chunks for text completions (object = text_completion).
+    /// Uses CompletionChunk format with choices[].text instead of choices[].delta.content.
+    /// </summary>
+    public static async Task StreamCompletionAsync(
+        HttpListenerResponse response,
+        IAsyncEnumerable<string> tokenStream,
+        string model,
+        CancellationToken ct)
+    {
+        response.ContentType = "text/event-stream";
+        response.Headers["Cache-Control"] = "no-cache";
+        response.Headers["Connection"] = "keep-alive";
+
+        var stream = response.OutputStream;
+        var chunkId = Guid.NewGuid().ToString("N");
+
+        await using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+
+        try
+        {
+            await foreach (var token in tokenStream.WithCancellation(ct))
+            {
+                var chunk = CompletionChunk.Delta(model, token);
+                chunk.Id = chunkId;
+                var json = JsonSerializer.Serialize(chunk, JsonOptions);
+                await writer.WriteLineAsync($"data: {json}");
+                await writer.WriteLineAsync();
+            }
+
+            // Final chunk with finish_reason
+            var finishChunk = CompletionChunk.Finish(model);
+            finishChunk.Id = chunkId;
+            var finishJson = JsonSerializer.Serialize(finishChunk, JsonOptions);
+            await writer.WriteLineAsync($"data: {finishJson}");
+            await writer.WriteLineAsync();
+
+            // End of stream marker
+            await writer.WriteLineAsync("data: [DONE]");
+            await writer.WriteLineAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected or cancelled — normal
+        }
+        catch (Exception ex)
+        {
+            var errorJson = JsonSerializer.Serialize(new { error = new { message = ex.Message, type = "stream_error" } });
+            await writer.WriteLineAsync($"data: {errorJson}");
+            await writer.WriteLineAsync();
+        }
+    }
+
+    /// <summary>
     /// Write a JSON response with status code.
     /// </summary>
     public static async Task WriteJsonAsync(HttpListenerResponse response, object data, int statusCode = 200)

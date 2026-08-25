@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 43  |  LOC: 1935  |  ~1451 tokens
+Types: 48  |  LOC: 2178  |  ~1544 tokens
 
 ---
 
@@ -37,6 +37,21 @@ Constructor:
 
 ### Class: ClientRegisterResponse
 > Generic API error response.
+
+### Class: CompletionChoice
+> OpenAI-compatible text completion request.
+
+### Class: CompletionChunk
+> OpenAI-compatible text completion request.
+
+### Class: CompletionChunkChoice
+> OpenAI-compatible text completion request.
+
+### Class: CompletionRequest
+> OpenAI-compatible text completion request.
+
+### Class: CompletionResponse
+> OpenAI-compatible text completion request.
 
 ### Class: CreateSessionRequest
 > Generic API error response.

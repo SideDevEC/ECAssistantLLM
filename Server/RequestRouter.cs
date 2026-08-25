@@ -50,7 +50,7 @@ public sealed class RequestRouter
 
         _logger.Debug("Router", $"{method} {path}");
 
-        var clientId = req.Headers["X-Client-Id"];
+        var clientId = req.Headers["X-Client-Id"] ?? "default";
 
         // ── OpenAI-compatible endpoints ──
         if (path == "/v1/chat/completions" && method == "POST")
@@ -214,8 +214,96 @@ public sealed class RequestRouter
 
     private async Task HandleCompletionAsync(HttpListenerContext ctx, string? clientId, CancellationToken ct)
     {
-        await SseStreamer.WriteJsonAsync(ctx.Response,
-            new ErrorResponse { Error = new() { Message = "Not implemented yet", Type = "not_implemented" } }, 501);
+        var req = await SseStreamer.ReadJsonAsync<CompletionRequest>(ctx.Request, ct);
+        if (req == null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Invalid request body", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(req.Prompt))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "prompt is required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(clientId))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        // Optional session-based inference (KV cache)
+        var session = req.SessionId != null
+            ? _sessions.GetSession(clientId, req.SessionId)
+            : null;
+
+        if (session == null && req.SessionId != null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = $"Session not found: {req.SessionId}", Type = "session_not_found" } }, 404);
+            return;
+        }
+
+        var prompt = req.Prompt;
+        // Echo: if true, the prompt text is prepended to the response (handled below)
+
+        var inferenceParams = CreateInferenceParams(req);
+
+        await using var slot = await _scheduler.AcquireAsync(ct);
+
+        if (req.Stream)
+        {
+            IAsyncEnumerable<string> tokenStream;
+            if (session != null)
+            {
+                tokenStream = session.InferAsync(prompt, inferenceParams, ct);
+            }
+            else
+            {
+                var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
+                tokenStream = StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
+            }
+
+            await SseStreamer.StreamCompletionAsync(ctx.Response, tokenStream, req.Model, ct);
+        }
+        else
+        {
+            var sb = new StringBuilder();
+            if (req.Echo)
+                sb.Append(prompt);
+
+            if (session != null)
+            {
+                await foreach (var token in session.InferAsync(prompt, inferenceParams, ct))
+                    sb.Append(token);
+            }
+            else
+            {
+                var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
+                await foreach (var token in StatelessInferAsync(modelSlot, prompt, inferenceParams, ct))
+                    sb.Append(token);
+            }
+
+            var response = new CompletionResponse
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Model = req.Model,
+                Choices = new()
+                {
+                    new CompletionChoice
+                    {
+                        Text = sb.ToString(),
+                        Index = 0,
+                        FinishReason = "stop"
+                    }
+                }
+            };
+            await SseStreamer.WriteJsonAsync(ctx.Response, response);
+        }
     }
 
     private async Task HandleEmbeddingsAsync(HttpListenerContext ctx, string? clientId, CancellationToken ct)
@@ -225,6 +313,13 @@ public sealed class RequestRouter
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "Invalid request", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(req.Input))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "input is required", Type = "invalid_request" } }, 400);
             return;
         }
 
@@ -295,7 +390,7 @@ public sealed class RequestRouter
     private async Task HandleRegisterClientAsync(HttpListenerContext ctx)
     {
         var req = await SseStreamer.ReadJsonAsync<ClientRegisterRequest>(ctx.Request);
-        if (req == null || string.IsNullOrEmpty(req.ClientName))
+        if (req == null || string.IsNullOrWhiteSpace(req.ClientName))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "client_name required", Type = "invalid_request" } }, 400);
@@ -666,6 +761,25 @@ public sealed class RequestRouter
     private static LLama.Common.InferenceParams CreateInferenceParams(ChatCompletionRequest req)
     {
         // DefaultSamplingPipeline properties are init-only — use object initializer
+        var pipe = new LLama.Sampling.DefaultSamplingPipeline
+        {
+            Temperature = req.Temperature ?? 0.3f,
+            TopP = req.TopP ?? 0.95f,
+            TopK = req.TopK ?? 40,
+            RepeatPenalty = req.RepeatPenalty ?? 1.1f
+        };
+
+        return new LLama.Common.InferenceParams
+        {
+            MaxTokens = req.MaxTokens ?? 512,
+            AntiPrompts = req.Stop?.ToArray() ?? new[] { "</s>", "User:", "### User" },
+            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
+            SamplingPipeline = pipe
+        };
+    }
+
+    private static LLama.Common.InferenceParams CreateInferenceParams(CompletionRequest req)
+    {
         var pipe = new LLama.Sampling.DefaultSamplingPipeline
         {
             Temperature = req.Temperature ?? 0.3f,

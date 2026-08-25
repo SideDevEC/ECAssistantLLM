@@ -1,7 +1,7 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-08-25 (v1.1 — `--port` CLI override, LDC update)
-**Status:** ✅ 31 tests pass, 0 errors, 0 warnings
+**Updated:** 2026-08-25 (v1.2 — /v1/completions implemented, error hardening, 64 integration tests)
+**Status:** ✅ 64 integration tests pass, 0 errors, 0 warnings
 
 ## Overview
 
@@ -13,7 +13,7 @@ weights, the GPU, and the per-session KV caches.
 
 - **Console app** (`Program.cs` top-level statements, `OutputType=Exe`)
 - **HttpListener-based** — zero external HTTP framework; `System.Net.HttpListener` only
-- **OpenAI-compatible**: `/v1/chat/completions`, `/v1/completions` (501 stub), `/v1/embeddings`, `/v1/models`
+- **OpenAI-compatible**: `/v1/chat/completions`, `/v1/completions` (fully implemented), `/v1/embeddings`, `/v1/models`
 - **Extension endpoints** (`/eca/*`): client lifecycle, per-session KV-cache control, runtime model load/unload, tokenization
 - **Multi-client**: multiple Core instances share one server, each with isolated sessions
 - **VRAM budget**: tracks estimated VRAM per session, refuses over-budget creation (503)
@@ -64,14 +64,15 @@ ECAssistantLLM/                 # 22 .cs files, ~2,537 LOC
 │    ├── VramBudget.cs           # Estimated VRAM tracking + budget enforcement
 │    └── ClientManager.cs        # Client registration, heartbeat, eviction; ClientRecord (internal) + ClientInfo record
 │
-├── Server/                    # HTTP layer
-│    ├── LlmHttpServer.cs        # HttpListener accept loop; dispatches each request to RequestRouter
+├── Server/
+│    ├── LlmHttpServer.cs        # HttpListener accept loop; dispatches each request to RequestRouter; catches JsonException → 400
 │    ├── RequestRouter.cs        # Path/method routing + all endpoint handlers (OpenAI + ECAssistant)
-│    └── SseStreamer.cs          # Stateless helper: SSE stream, JSON read/write
+│    └── SseStreamer.cs          # Stateless helper: SSE stream (chat + completion), JSON read/write
 │
-└── Models/                    # API request/response DTOs (leaf package, ~209 LOC)
+└── Models/                    # API request/response DTOs (leaf package)
      ├── ChatCompletionRequest.cs# OpenAI chat request + ECAssistant session_id; ChatMessage
      ├── ChatCompletionChunk.cs  # SSE chunk + ChunkChoice + ChunkDelta; Delta()/Finish() factories
+     ├── CompletionModels.cs     # OpenAI text completion: CompletionRequest/Response/Chunk/Choice (streaming + non-streaming)
      ├── EmbeddingModels.cs      # EmbeddingRequest / EmbeddingResponse / EmbeddingData
      ├── TokenizeModels.cs       # TokenizeRequest / TokenizeResponse
      └── ApiModels.cs            # ErrorResponse/ErrorDetail, SuccessResponse, client/session/model DTOs
@@ -126,7 +127,7 @@ for `NullLogger<T>` used to silence LLamaSharp's own logging). The HTTP layer ad
 |---|---|
 | `LlmHttpServer` | `HttpListener` accept loop; spawns a `Task` per request → `RequestRouter`; owns `IDisposable` teardown order |
 | `RequestRouter` | Routes by path+method to OpenAI and `/eca/*` handlers; validates `X-Client-Id`; builds prompts/`InferenceParams`; runs stateless inference for session-less requests |
-| `SseStreamer` | Stateless helper: `StreamAsync` (SSE chunks + `[DONE]`), `WriteJsonAsync`, `WriteTextAsync`, `ReadJsonAsync<T>` |
+| `SseStreamer` | Stateless helper: `StreamAsync` (chat SSE chunks + `[DONE]`), `StreamCompletionAsync` (completion SSE chunks), `WriteJsonAsync`, `WriteTextAsync`, `ReadJsonAsync<T>` |
 
 ### Root / Config
 
@@ -147,7 +148,7 @@ All requests that touch a session carry an `X-Client-Id` header. JSON is camelCa
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/v1/chat/completions` | Chat completion, streaming (SSE) + non-streaming; routes to a session via `session_id` or runs stateless |
-| POST | `/v1/completions` | Text completion — **501 Not Implemented** (stub) |
+| POST | `/v1/completions` | Text completion, streaming (SSE) + non-streaming; routes to a session via `session_id` or runs stateless; supports `echo`, `stop`, custom params |
 | POST | `/v1/embeddings` | Generate embeddings via the embedding model's `LLamaEmbedder` |
 | GET | `/v1/models` | List loaded models (OpenAI shape: `object:"list"`, `owned_by:"ecassistant"`, `loaded`, `is_embedding`) |
 
@@ -263,3 +264,8 @@ Section semantics:
 - **GPU/threads/batch_size are server-side** — configured in `llm-server.json`, not in Core.
 - **No HTTP framework** — `System.Net.HttpListener` + `System.Text.Json` only; the sole
   external dependency is LLamaSharp.
+- **Error hardening:** `LlmHttpServer` catches `JsonException` → 400 (invalid JSON body),
+  generic exceptions → 500. `RequestRouter` validates empty prompts/text/input → 400,
+  whitespace client names → 400 (`IsNullOrWhiteSpace`), missing sessions → 404.
+- **Integration tests:** 64 tests covering all endpoints (health, clients, sessions, KV cache,
+  chat completions, text completions, embeddings, models, tokenize, error handling, routing).

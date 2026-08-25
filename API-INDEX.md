@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-25T01:53:00.662984+00:00
-Packages: 1  |  Types: 43
+Generated: 2026-08-25T16:48:26.048474+00:00
+Packages: 1  |  Types: 48
 
 ---
 
-## ECAssistantLLM (43 types, ~1935 LOC)
+## ECAssistantLLM (48 types, ~2178 LOC)
 
 - 🔵 ILogger  (ECAssistantLLM)
 - 🟡 ChatCompletionChunk  (ECAssistantLLM)
@@ -17,6 +17,11 @@ Packages: 1  |  Types: 43
 - 🟡 ClientManager  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action]
 - 🟡 ClientRegisterRequest  (ECAssistantLLM)
 - 🟡 ClientRegisterResponse  (ECAssistantLLM)
+- 🟡 CompletionChoice  (ECAssistantLLM)
+- 🟡 CompletionChunk  (ECAssistantLLM)
+- 🟡 CompletionChunkChoice  (ECAssistantLLM)
+- 🟡 CompletionRequest  (ECAssistantLLM)
+- 🟡 CompletionResponse  (ECAssistantLLM)
 - 🟡 CreateSessionRequest  (ECAssistantLLM)
 - 🟡 EmbeddingData  (ECAssistantLLM)
 - 🟡 EmbeddingRequest  (ECAssistantLLM)
