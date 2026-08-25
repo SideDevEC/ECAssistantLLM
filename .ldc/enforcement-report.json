@@ -1,171 +1,27 @@
 {
   "project": "ECAssistantLLM",
-  "timestamp": "2026-08-24T20:39:04.112674+00:00",
-  "total_violations": 27,
+  "timestamp": "2026-08-25T01:53:00.663601+00:00",
+  "total_violations": 3,
   "errors": 0,
-  "warnings": 27,
+  "warnings": 3,
   "violations": [
     {
       "rule": "interface-first",
       "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Config/Models/InferenceDefaults.cs",
-      "message": "Public class InferenceDefaults in Config/Models/InferenceDefaults.cs implements no interface \u2014 may be a boundary leak"
+      "file": "<project-root>/ECAssistantLLM/Server/RequestRouter.cs",
+      "message": "Public class RequestRouter in ECAssistantLLM implements no interface \u2014 may be a boundary leak"
     },
     {
       "rule": "interface-first",
       "severity": "warning",
       "file": "<project-root>/ECAssistantLLM/Engine/ClientManager.cs",
-      "message": "Public class ClientManager in Engine/ClientManager.cs implements no interface \u2014 may be a boundary leak"
+      "message": "Public class ClientManager in ECAssistantLLM implements no interface \u2014 may be a boundary leak"
     },
     {
       "rule": "interface-first",
       "severity": "warning",
       "file": "<project-root>/ECAssistantLLM/Engine/InferenceScheduler.cs",
-      "message": "Public class InferenceScheduler in Engine/InferenceScheduler.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Engine/VramBudget.cs",
-      "message": "Public class VramBudget in Engine/VramBudget.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class ErrorResponse in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class ErrorDetail in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class SuccessResponse in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class ClientRegisterRequest in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class ClientRegisterResponse in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class HeartbeatRequest in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class HeartbeatResponse in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class CreateSessionRequest in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class PrefillRequest in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class PrefillResponse in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class RewindRequest in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ApiModels.cs",
-      "message": "Public class RewindResponse in Models/ApiModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ChatCompletionChunk.cs",
-      "message": "Public class ChatCompletionChunk in Models/ChatCompletionChunk.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ChatCompletionChunk.cs",
-      "message": "Public class ChunkChoice in Models/ChatCompletionChunk.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ChatCompletionChunk.cs",
-      "message": "Public class ChunkDelta in Models/ChatCompletionChunk.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ChatCompletionRequest.cs",
-      "message": "Public class ChatCompletionRequest in Models/ChatCompletionRequest.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/ChatCompletionRequest.cs",
-      "message": "Public class ChatMessage in Models/ChatCompletionRequest.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/EmbeddingModels.cs",
-      "message": "Public class EmbeddingRequest in Models/EmbeddingModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/EmbeddingModels.cs",
-      "message": "Public class EmbeddingResponse in Models/EmbeddingModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/TokenizeModels.cs",
-      "message": "Public class TokenizeRequest in Models/TokenizeModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Models/TokenizeModels.cs",
-      "message": "Public class TokenizeResponse in Models/TokenizeModels.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Server/RequestRouter.cs",
-      "message": "Public class RequestRouter in Server/RequestRouter.cs implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "<project-root>/ECAssistantLLM/Server/SseStreamer.cs",
-      "message": "Public class SseStreamer in Server/SseStreamer.cs implements no interface \u2014 may be a boundary leak"
+      "message": "Public class InferenceScheduler in ECAssistantLLM implements no interface \u2014 may be a boundary leak"
     }
   ],
   "passed": true

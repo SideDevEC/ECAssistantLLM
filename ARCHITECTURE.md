@@ -1,7 +1,7 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-08-24
-**Status:** ✅ Build clean, net8.0, LLamaSharp 0.27.0
+**Updated:** 2026-08-25 (v1.1 — `--port` CLI override, LDC update)
+**Status:** ✅ 31 tests pass, 0 errors, 0 warnings
 
 ## Overview
 
@@ -42,7 +42,7 @@ weights, the GPU, and the per-session KV caches.
 
 ```
 ECAssistantLLM/                 # 22 .cs files, ~2,537 LOC
-├── Program.cs                  # Entry point: resolve+load config, wire components, run server, handle shutdown
+├── Program.cs                  # Entry point: `[--port <N>] [path-to-llm-server.json]`, apply port override, wire components, run server, handle shutdown
 ├── ServerLogger.cs            # ILogger interface + LogLevel enum + ServerLogger impl (file + console)
 ├── ECAssistant.LLM.csproj      # net8.0 exe, LLamaSharp 0.27.0 + CPU/Cuda12/Vulkan backends, Microsoft.Extensions.Logging.Abstractions
 ├── llm-server.json             # Server config (models, ports, inference defaults, logging)
@@ -132,7 +132,7 @@ for `NullLogger<T>` used to silence LLamaSharp's own logging). The HTTP layer ad
 
 | Component | Purpose |
 |---|---|
-| `Program.cs` | Composition root: resolve config path, `LlmServerConfig.TryLoad`, build logger, wire Engine+Server, handle Ctrl+C / ProcessExit, `RunAsync`, dispose |
+| `Program.cs` | Composition root: parse `[--port <N>] [path-to-llm-server.json]`, `LlmServerConfig.TryLoad`, apply CLI port override (after load, before start, logged), build logger, wire Engine+Server, handle Ctrl+C / ProcessExit, `RunAsync`, dispose |
 | `ILogger` / `LogLevel` / `ServerLogger` | Single logging abstraction (console + file, thread-safe via lock); the only internal interface |
 | `LlmServerConfig` | Root config loader: `Load`/`TryLoad` + `Validate` (port range, ≥1 model, unique ids, non-empty id/path); shared `JsonOptions` |
 | `ServerSection` / `ModelConfig` / `InferenceDefaults` / `LoggingSection` | JSON section models (mutable, deserialized) |
@@ -228,14 +228,14 @@ executable). `Validate` enforces: port 1–65535, ≥1 model, unique non-empty m
 
 Section semantics:
 
-- **`server`** — binding (`host`/`port` → computed `Prefix`), session cap, VRAM budget, heartbeat cadence. `gpu_layers`, `threads`, `batch_size` are **server-side** concerns (not in Core config).
+- **`server`** — binding (`host`/`port` → computed `Prefix`), session cap, VRAM budget, heartbeat cadence. `gpu_layers`, `threads`, `batch_size` are **server-side** concerns (not in Core config). `--port <N>` on the CLI overrides `server.port` after config load.
 - **`models`** — one `ModelConfig` each. `gpu_layers` is clamped to `[0,100]`; `threads: -1` → auto; `batch_size: 0` → LLamaSharp default. First non-embedding model = **main**; first embedding model = **embeddings**. Embedding models use `pooling_type` (`mean`/`cls`/`last`/`none`, default `mean`).
 - **`inference`** — default sampling params, overridable per-request via `temperature`/`top_p`/`top_k`/`max_tokens`/`repeat_penalty` on the chat request.
 - **`logging`** — `level` (`debug`/`info`/`warn`/`error`) + log file path (resolved relative to the config dir).
 
 ## Lifecycle
 
-1. **Startup** — `Program.cs` resolves the config path (arg → exe dir → CWD), `LlmServerConfig.TryLoad` + `Validate`, builds `ServerLogger`, constructs `MultiModelHost`/`InferenceScheduler`/`VramBudget` → `LoadAll()`, then `SessionRegistry`, `ClientManager`, `LlmHttpServer`.
+1. **Startup** — `Program.cs` parses `[--port <N>] [path-to-llm-server.json]`, resolves the config path (arg → exe dir → CWD), `LlmServerConfig.TryLoad` + `Validate`, applies the `--port` override to `server.port` (after load, before start, logged), builds `ServerLogger`, constructs `MultiModelHost`/`InferenceScheduler`/`VramBudget` → `LoadAll()`, then `SessionRegistry`, `ClientManager`, `LlmHttpServer`.
 2. **Model loading** — `MultiModelHost.LoadAll()` creates a `ModelSlot` per config and calls `Load()` (loads `LLamaWeights`, and for embedding models a `LLamaEmbedder` + a probe call to determine `EmbeddingDim`). A load failure is fatal at startup.
 3. **Server run** — `LlmHttpServer.RunAsync` starts the listener and accepts a `Task` per request; each is dispatched to `RequestRouter.RouteAsync`.
 4. **Client connect** — Core `POST /eca/clients` → UUID `client_id`; client starts a heartbeat timer.

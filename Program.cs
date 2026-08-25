@@ -3,10 +3,20 @@ using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Engine;
 using ECAssistant.LLM.Server;
 
-// ── Find config file ──
-var configPath = args.Length > 0
-    ? args[0]
-    : Path.Combine(AppContext.BaseDirectory, "llm-server.json");
+// ── Parse args: [--port <N>] [path-to-llm-server.json] ──
+int? portOverride = null;
+string? configPath = null;
+
+for (int i = 0; i < args.Length; i++)
+{
+    if (args[i] == "--port" && i + 1 < args.Length && int.TryParse(args[++i], out var p))
+        portOverride = p;
+    else if (!args[i].StartsWith("--"))
+        configPath = args[i];
+}
+
+// Fall back to default config path
+configPath ??= Path.Combine(AppContext.BaseDirectory, "llm-server.json");
 
 if (!File.Exists(configPath))
 {
@@ -18,7 +28,7 @@ if (!File.Exists(configPath))
 {
     Console.Error.WriteLine($"ERROR: llm-server.json not found.");
     Console.Error.WriteLine($"Searched: {AppContext.BaseDirectory}, {Directory.GetCurrentDirectory()}");
-    Console.Error.WriteLine($"Usage: ECAssistant.LLM [path-to-llm-server.json]");
+    Console.Error.WriteLine($"Usage: ECAssistant.LLM [--port <N>] [path-to-llm-server.json]");
     return 1;
 }
 
@@ -45,6 +55,13 @@ var logger = new ServerLogger(logLevel, logFilePath);
 
 logger.Info("Main", $"ECAssistantLLM v1.0.0");
 logger.Info("Main", $"Config: {configPath}");
+// ── Apply port override from command line ──
+if (portOverride.HasValue)
+{
+    config.Server.Port = portOverride.Value;
+    logger.Info("Main", $"Port override from CLI: {portOverride.Value}");
+}
+
 logger.Info("Main", $"Server: {config.Server.Host}:{config.Server.Port}");
 logger.Info("Main", $"Models configured: {config.Models.Count}");
 logger.Info("Main", $"Shutdown on last client: {config.Server.ShutdownOnLastClient}");
