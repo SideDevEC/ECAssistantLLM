@@ -122,6 +122,7 @@ public sealed class RequestRouter
         { await HandleTokenizeAsync(ctx, clientId); return; }
 
         // ── 404 ──
+        _logger.Warn("Router", $"Not found: {method} {path}");
         await SseStreamer.WriteJsonAsync(res,
             new ErrorResponse { Error = new() { Message = $"Not found: {method} {path}", Type = "not_found" } },
             404);

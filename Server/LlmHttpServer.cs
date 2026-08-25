@@ -85,6 +85,7 @@ public sealed class LlmHttpServer : IDisposable
                 }
                 catch (System.Text.Json.JsonException)
                 {
+                    _logger.Warn("Server", "Invalid JSON body in request");
                     try
                     {
                         await SseStreamer.WriteJsonAsync(ctx.Response,

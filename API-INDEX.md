@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-25T20:17:45.813577+00:00
+Generated: 2026-08-25T21:22:38.587849+00:00
 Packages: 1  |  Types: 48
 
 ---
 
-## ECAssistantLLM (48 types, ~2178 LOC)
+## ECAssistantLLM (48 types, ~2180 LOC)
 
 - 🔵 ILogger  (ECAssistantLLM)
 - 🟡 ChatCompletionChunk  (ECAssistantLLM)
