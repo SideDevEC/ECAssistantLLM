@@ -125,17 +125,17 @@ public sealed class ModelSlot : IDisposable
 
     private static string ResolveModelPath(string path)
     {
+        // Program.cs resolves model paths to absolute before loading.
+        // This is a fallback for standalone execution.
         if (Path.IsPathRooted(path) && File.Exists(path))
             return path;
 
-        // Try relative to config file directory (parent of llm-server.json, set by caller)
         var dirs = new[]
         {
             AppContext.BaseDirectory,
             Directory.GetCurrentDirectory(),
             Path.Combine(AppContext.BaseDirectory, "models"),
             Path.Combine(Directory.GetCurrentDirectory(), "models"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "models"),
         };
 
         foreach (var dir in dirs)

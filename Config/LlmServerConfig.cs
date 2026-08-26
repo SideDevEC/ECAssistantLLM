@@ -79,4 +79,71 @@ public sealed class LlmServerConfig
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true
     };
+
+    /// <summary>
+    /// Generate a default config with sensible values. Model paths are relative
+    /// (resolved by Program.cs relative to the root directory).
+    /// </summary>
+    public static LlmServerConfig GenerateDefault()
+    {
+        return new LlmServerConfig
+        {
+            Server = new ServerSection
+            {
+                Host = "localhost",
+                Port = 8420,
+                MaxSessions = 8,
+                MaxVramMb = null,
+                ShutdownOnLastClient = true,
+                HeartbeatTimeoutSec = 90,
+                HeartbeatIntervalSec = 30
+            },
+            Models = new List<ModelConfig>
+            {
+                new ModelConfig
+                {
+                    Id = "main",
+                    Path = "models/qwen3-8b-q4_k_m.gguf",
+                    GpuLayers = 99,
+                    ContextSize = 32768,
+                    Threads = -1
+                },
+                new ModelConfig
+                {
+                    Id = "embeddings",
+                    Path = "models/all-MiniLM-L6-v2-q5_k_m.gguf",
+                    GpuLayers = 0,
+                    ContextSize = 2048,
+                    Threads = -1,
+                    IsEmbedding = true
+                }
+            },
+            Inference = new InferenceDefaults
+            {
+                MaxTokens = 512,
+                Temperature = 0.3f,
+                TopP = 0.95f,
+                TopK = 40,
+                RepeatPenalty = 1.1f
+            },
+            Logging = new LoggingSection
+            {
+                Level = "info",
+                File = "ecassistant-llm.log"
+            }
+        };
+    }
+
+    /// <summary>
+    /// Save config to a JSON file.
+    /// </summary>
+    public static void Save(LlmServerConfig config, string path)
+    {
+        var json = JsonSerializer.Serialize(config, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+        });
+        File.WriteAllText(path, json);
+    }
 }

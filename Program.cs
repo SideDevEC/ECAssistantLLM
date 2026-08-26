@@ -3,33 +3,43 @@ using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Engine;
 using ECAssistant.LLM.Server;
 
-// ── Parse args: [--port <N>] [path-to-llm-server.json] ──
+// ── Parse args: [--root <dir>] [--port <N>] [path-to-llm-server.json] ──
+string? rootDir = null;
 int? portOverride = null;
 string? configPath = null;
 
 for (int i = 0; i < args.Length; i++)
 {
-    if (args[i] == "--port" && i + 1 < args.Length && int.TryParse(args[++i], out var p))
+    if (args[i] == "--root" && i + 1 < args.Length)
+        rootDir = args[++i];
+    else if (args[i] == "--port" && i + 1 < args.Length && int.TryParse(args[++i], out var p))
         portOverride = p;
     else if (!args[i].StartsWith("--"))
         configPath = args[i];
 }
 
-// Fall back to default config path
-configPath ??= Path.Combine(AppContext.BaseDirectory, "llm-server.json");
-
-if (!File.Exists(configPath))
+// ── Resolve root directory ──
+// The root dir is passed by the calling application (e.g. ECAssistantCore).
+// Everything (config, logs, models) lives under this directory.
+if (string.IsNullOrEmpty(rootDir))
 {
-    // Try current directory
-    configPath = Path.Combine(Directory.GetCurrentDirectory(), "llm-server.json");
+    // Fallback: use current directory if no root specified (standalone execution)
+    rootDir = Directory.GetCurrentDirectory();
 }
 
+Directory.CreateDirectory(rootDir);
+
+// ── Resolve config path ──
+if (string.IsNullOrEmpty(configPath))
+    configPath = Path.Combine(rootDir, "llm-server.json");
+
+// ── Generate default config if missing ──
 if (!File.Exists(configPath))
 {
-    Console.Error.WriteLine($"ERROR: llm-server.json not found.");
-    Console.Error.WriteLine($"Searched: {AppContext.BaseDirectory}, {Directory.GetCurrentDirectory()}");
-    Console.Error.WriteLine($"Usage: ECAssistant.LLM [--port <N>] [path-to-llm-server.json]");
-    return 1;
+    var defaultConfig = LlmServerConfig.GenerateDefault();
+    LlmServerConfig.Save(defaultConfig, configPath);
+    Console.WriteLine($"[ECAssistantLLM] Generated default config: {configPath}");
+    Console.WriteLine($"[ECAssistantLLM] Edit it to point to your model files (models/*.gguf).");
 }
 
 // ── Load config ──
@@ -48,13 +58,17 @@ var logLevel = config.Logging.Level.ToLower() switch
     "error" => LogLevel.Error,
     _ => LogLevel.Info
 };
+
+// Resolve log file path relative to root directory
 var logFilePath = Path.IsPathRooted(config.Logging.File)
     ? config.Logging.File
-    : Path.Combine(Path.GetDirectoryName(configPath) ?? ".", config.Logging.File);
+    : Path.Combine(rootDir, config.Logging.File);
 var logger = new ServerLogger(logLevel, logFilePath);
 
 logger.Info("Main", $"ECAssistantLLM v1.0.0");
+logger.Info("Main", $"Root: {rootDir}");
 logger.Info("Main", $"Config: {configPath}");
+
 // ── Apply port override from command line ──
 if (portOverride.HasValue)
 {
@@ -65,6 +79,28 @@ if (portOverride.HasValue)
 logger.Info("Main", $"Server: {config.Server.Host}:{config.Server.Port}");
 logger.Info("Main", $"Models configured: {config.Models.Count}");
 logger.Info("Main", $"Shutdown on last client: {config.Server.ShutdownOnLastClient}");
+
+// ── Resolve model paths relative to root directory ──
+// The LLM server resolves model paths from {rootDir}/models/ or absolute paths
+foreach (var model in config.Models)
+{
+    if (!Path.IsPathRooted(model.Path))
+    {
+        var resolved = Path.Combine(rootDir, model.Path);
+        if (File.Exists(resolved))
+        {
+            model.Path = resolved;
+        }
+        else
+        {
+            // Also try {rootDir}/models/{filename}
+            var inModelsDir = Path.Combine(rootDir, "models", Path.GetFileName(model.Path));
+            if (File.Exists(inModelsDir))
+                model.Path = inModelsDir;
+        }
+    }
+    logger.Info("Main", $"  Model '{model.Id}': {model.Path}");
+}
 
 // ── Initialize components ──
 var modelHost = new MultiModelHost(config, logger);
