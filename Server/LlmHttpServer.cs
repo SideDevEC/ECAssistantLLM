@@ -97,7 +97,9 @@ public sealed class LlmHttpServer : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error("Server", $"Unhandled error: {ex.Message}");
+                    // Suppress noisy broken-pipe errors — client just disconnected
+                    if (!ex.Message.Contains("Broken pipe") && !ex.Message.Contains("connection was closed"))
+                        _logger.Error("Server", $"Unhandled error: {ex.Message}");
                     try
                     {
                         await SseStreamer.WriteJsonAsync(ctx.Response,
