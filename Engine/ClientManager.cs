@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using ECAssistant.LLM.Interfaces;
 
 namespace ECAssistant.LLM.Engine;
 
@@ -7,7 +8,7 @@ namespace ECAssistant.LLM.Engine;
 /// When the last client disconnects and ShutdownOnLastClient is true,
 /// triggers the server shutdown callback.
 /// </summary>
-public sealed class ClientManager
+public sealed class ClientManager : IClientManager, IDisposable
 {
     private readonly ConcurrentDictionary<string, ClientRecord> _clients = new();
     private readonly SessionRegistry _sessionRegistry;

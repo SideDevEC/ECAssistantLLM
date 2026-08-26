@@ -1,10 +1,12 @@
+using ECAssistant.LLM.Interfaces;
+
 namespace ECAssistant.LLM.Engine;
 
 /// <summary>
 /// Serializes inference across all clients.
 /// One model = one inference at a time. FIFO queue with semaphore.
 /// </summary>
-public sealed class InferenceScheduler
+public sealed class InferenceScheduler : IInferenceScheduler
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ILogger _logger;

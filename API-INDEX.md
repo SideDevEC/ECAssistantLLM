@@ -1,20 +1,23 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-25T21:22:38.587849+00:00
-Packages: 1  |  Types: 48
+Generated: 2026-08-26T10:51:43.895384+00:00
+Packages: 1  |  Types: 51
 
 ---
 
-## ECAssistantLLM (48 types, ~2180 LOC)
+## ECAssistantLLM (51 types, ~2209 LOC)
 
+- 🔵 IClientManager  (ECAssistantLLM)
+- 🔵 IInferenceScheduler  (ECAssistantLLM)
 - 🔵 ILogger  (ECAssistantLLM)
+- 🔵 IRequestRouter  (ECAssistantLLM)
 - 🟡 ChatCompletionChunk  (ECAssistantLLM)
 - 🟡 ChatCompletionRequest  (ECAssistantLLM)
 - 🟡 ChatMessage  (ECAssistantLLM)
 - 🟡 ChunkChoice  (ECAssistantLLM)
 - 🟡 ChunkDelta  (ECAssistantLLM)
 - 🟣 ClientInfo  (ECAssistantLLM)  deps: [string, string, string, DateTime, DateTime, int]
-- 🟡 ClientManager  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action]
+- 🟡 ClientManager : IClientManager, IDisposable  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action]
 - 🟡 ClientRegisterRequest  (ECAssistantLLM)
 - 🟡 ClientRegisterResponse  (ECAssistantLLM)
 - 🟡 CompletionChoice  (ECAssistantLLM)
@@ -31,8 +34,8 @@ Packages: 1  |  Types: 48
 - 🟡 HeartbeatRequest  (ECAssistantLLM)
 - 🟡 HeartbeatResponse  (ECAssistantLLM)
 - 🟡 InferenceDefaults  (ECAssistantLLM)
-- 🟡 InferenceScheduler  (ECAssistantLLM)  deps: [ILogger]
-- 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, InferenceScheduler, VramBudget, ClientManager, ILogger, CancellationTokenSource? externalCts =]
+- 🟡 InferenceScheduler : IInferenceScheduler  (ECAssistantLLM)  deps: [ILogger]
+- 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =]
 - 🟡 LlmServerConfig  (ECAssistantLLM)
 - 🟡 LoadModelRequest  (ECAssistantLLM)
 - 🟡 LoggingSection  (ECAssistantLLM)
@@ -42,13 +45,13 @@ Packages: 1  |  Types: 48
 - 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger]
 - 🟡 PrefillRequest  (ECAssistantLLM)
 - 🟡 PrefillResponse  (ECAssistantLLM)
-- 🟡 RequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, InferenceScheduler, VramBudget, ClientManager, LlmServerConfig, ILogger, CancellationTokenSource]
+- 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource]
 - 🟡 RewindRequest  (ECAssistantLLM)
 - 🟡 RewindResponse  (ECAssistantLLM)
 - 🟡 ServerLogger : ILogger  (ECAssistantLLM)  deps: [LogLevel minLevel =, string? logFile =]
 - 🟡 ServerSection  (ECAssistantLLM)
 - 🟡 SessionContext : IDisposable  (ECAssistantLLM)  deps: [string, string, string, LLamaWeights, ModelParams, InferenceParams, ILogger]
-- 🟡 SessionRegistry : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, InferenceScheduler, LlmServerConfig, ILogger]
+- 🟡 SessionRegistry : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger]
 - 🟣 SessionStatusInfo  (ECAssistantLLM)  deps: [string, string, string, bool, int, uint, double, DateTime, DateTime]
 - 🟡 SseStreamer  (ECAssistantLLM)
 - 🟡 SuccessResponse  (ECAssistantLLM)

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Engine;
+using ECAssistant.LLM.Interfaces;
 using ECAssistant.LLM.Models;
 
 namespace ECAssistant.LLM.Server;
@@ -10,13 +11,13 @@ namespace ECAssistant.LLM.Server;
 /// <summary>
 /// Routes incoming HTTP requests to the appropriate handler.
 /// </summary>
-public sealed class RequestRouter
+public sealed class RequestRouter : IRequestRouter
 {
     private readonly MultiModelHost _models;
     private readonly SessionRegistry _sessions;
-    private readonly InferenceScheduler _scheduler;
+    private readonly IInferenceScheduler _scheduler;
     private readonly VramBudget _vram;
-    private readonly ClientManager _clients;
+    private readonly IClientManager _clients;
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
@@ -24,9 +25,9 @@ public sealed class RequestRouter
     public RequestRouter(
         MultiModelHost models,
         SessionRegistry sessions,
-        InferenceScheduler scheduler,
+        IInferenceScheduler scheduler,
         VramBudget vram,
-        ClientManager clients,
+        IClientManager clients,
         LlmServerConfig config,
         ILogger logger,
         CancellationTokenSource cts)

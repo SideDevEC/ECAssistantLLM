@@ -1,28 +1,9 @@
 {
   "project": "ECAssistantLLM",
-  "timestamp": "2026-08-25T21:22:38.588592+00:00",
-  "total_violations": 3,
+  "timestamp": "2026-08-26T10:51:43.896144+00:00",
+  "total_violations": 0,
   "errors": 0,
-  "warnings": 3,
-  "violations": [
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "/Users/localdev/agent/ECAssistant/ECAssistantLLM/Server/RequestRouter.cs",
-      "message": "Public class RequestRouter in ECAssistantLLM implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "/Users/localdev/agent/ECAssistant/ECAssistantLLM/Engine/ClientManager.cs",
-      "message": "Public class ClientManager in ECAssistantLLM implements no interface \u2014 may be a boundary leak"
-    },
-    {
-      "rule": "interface-first",
-      "severity": "warning",
-      "file": "/Users/localdev/agent/ECAssistant/ECAssistantLLM/Engine/InferenceScheduler.cs",
-      "message": "Public class InferenceScheduler in ECAssistantLLM implements no interface \u2014 may be a boundary leak"
-    }
-  ],
+  "warnings": 0,
+  "violations": [],
   "passed": true
 }

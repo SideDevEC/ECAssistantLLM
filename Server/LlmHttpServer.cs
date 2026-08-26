@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Engine;
+using ECAssistant.LLM.Interfaces;
 using ECAssistant.LLM.Models;
 using ECAssistant.LLM.Server;
 
@@ -16,9 +17,9 @@ public sealed class LlmHttpServer : IDisposable
     private readonly LlmServerConfig _config;
     private readonly MultiModelHost _modelHost;
     private readonly SessionRegistry _sessionRegistry;
-    private readonly InferenceScheduler _scheduler;
+    private readonly IInferenceScheduler _scheduler;
     private readonly VramBudget _vramBudget;
-    private readonly ClientManager _clientManager;
+    private readonly IClientManager _clientManager;
     private readonly ILogger _logger;
     private readonly RequestRouter _router;
     private CancellationTokenSource? _cts;
@@ -28,9 +29,9 @@ public sealed class LlmHttpServer : IDisposable
         LlmServerConfig config,
         MultiModelHost modelHost,
         SessionRegistry sessionRegistry,
-        InferenceScheduler scheduler,
+        IInferenceScheduler scheduler,
         VramBudget vramBudget,
-        ClientManager clientManager,
+        IClientManager clientManager,
         ILogger logger,
         CancellationTokenSource? externalCts = null)
     {

@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-08-25 (v1.2 — /v1/completions implemented, error hardening, 64 integration tests)
+**Updated:** 2026-08-26 (v1.3 — LDC compliance: 3 new interfaces extracted, 0 enforcement warnings)
 **Status:** ✅ 64 integration tests pass, 0 errors, 0 warnings
 
 ## Overview

@@ -3,6 +3,7 @@ using LLama;
 using LLama.Common;
 using LLama.Sampling;
 using ECAssistant.LLM.Config;
+using ECAssistant.LLM.Interfaces;
 
 namespace ECAssistant.LLM.Engine;
 
@@ -14,11 +15,11 @@ public sealed class SessionRegistry : IDisposable
 {
     private readonly ConcurrentDictionary<string, SessionContext> _sessions = new();
     private readonly MultiModelHost _modelHost;
-    private readonly InferenceScheduler _scheduler;
+    private readonly IInferenceScheduler _scheduler;
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
 
-    public SessionRegistry(MultiModelHost modelHost, InferenceScheduler scheduler, LlmServerConfig config, ILogger logger)
+    public SessionRegistry(MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger)
     {
         _modelHost = modelHost ?? throw new ArgumentNullException(nameof(modelHost));
         _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));

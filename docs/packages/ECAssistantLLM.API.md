@@ -1,8 +1,28 @@
 # ECAssistantLLM.API.md
 
-Types: 48  |  LOC: 2180  |  ~1544 tokens
+Types: 51  |  LOC: 2209  |  ~1849 tokens
 
 ---
+
+### Interface: IClientManager
+> Interface for managing client connections: registration, heartbeat, eviction.
+Properties:
+  - int ClientCount { get; set; }
+Methods:
+  - string Register(string clientName, string? version = null)
+  - bool Heartbeat(string clientId, int activeSessions)
+  - bool Disconnect(string clientId)
+  - bool IsValid(string clientId)
+  - IReadOnlyList<ClientInfo> ListClients()
+  - void Dispose()
+Cross-package deps: ECAssistant.LLM.Engine
+
+### Interface: IInferenceScheduler
+> Interface for serializing inference across all clients.
+Properties:
+  - int QueueDepth { get; set; }
+Methods:
+  - Task<IAsyncDisposable> AcquireAsync(CancellationToken ct = default)
 
 ### Interface: ILogger
 > Simple file + console logger for the LLM server.
@@ -11,6 +31,11 @@ Methods:
   - void Warn(string tag, string message)
   - void Error(string tag, string message)
   - void Debug(string tag, string message)
+
+### Interface: IRequestRouter
+> Interface for routing incoming HTTP requests to the appropriate handler.
+Methods:
+  - Task RouteAsync(HttpListenerContext ctx, CancellationToken ct)
 
 ### Class: ChatCompletionChunk
 > SSE streaming chunk (OpenAI format).
@@ -29,8 +54,10 @@ Methods:
 
 ### Class: ClientManager
 > Manages client connections: registration, heartbeat, eviction.
+Implements: IClientManager, IDisposable
 Constructor:
   - ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected)
+Cross-package deps: ECAssistant.LLM.Interfaces
 
 ### Class: ClientRegisterRequest
 > Generic API error response.
@@ -79,15 +106,17 @@ Constructor:
 
 ### Class: InferenceScheduler
 > Serializes inference across all clients.
+Implements: IInferenceScheduler
 Constructor:
   - InferenceScheduler(ILogger logger)
+Cross-package deps: ECAssistant.LLM.Interfaces
 
 ### Class: LlmHttpServer
 > Main HTTP server using HttpListener. Routes requests to OpenAI and ECAssistant endpoints.
 Implements: IDisposable
 Constructor:
-  - LlmHttpServer(LlmServerConfig config, MultiModelHost modelHost, SessionRegistry sessionRegistry, InferenceScheduler scheduler, VramBudget vramBudget, ClientManager clientManager, ILogger logger, CancellationTokenSource? externalCts = null)
-Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Models, ECAssistant.LLM.Server
+  - LlmHttpServer(LlmServerConfig config, MultiModelHost modelHost, SessionRegistry sessionRegistry, IInferenceScheduler scheduler, VramBudget vramBudget, IClientManager clientManager, ILogger logger, CancellationTokenSource? externalCts = null)
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models, ECAssistant.LLM.Server
 
 ### Class: LlmServerConfig
 > Root server configuration. Deserialized from llm-server.json.
@@ -123,9 +152,10 @@ Cross-package deps: LLama, ECAssistant.LLM.Config
 
 ### Class: RequestRouter
 > Routes incoming HTTP requests to the appropriate handler.
+Implements: IRequestRouter
 Constructor:
-  - RequestRouter(MultiModelHost models, SessionRegistry sessions, InferenceScheduler scheduler, VramBudget vram, ClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts)
-Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Models
+  - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts)
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models
 
 ### Class: RewindRequest
 > Generic API error response.
@@ -153,8 +183,8 @@ Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config
 > Registry of all client sessions across the server.
 Implements: IDisposable
 Constructor:
-  - SessionRegistry(MultiModelHost modelHost, InferenceScheduler scheduler, LlmServerConfig config, ILogger logger)
-Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config
+  - SessionRegistry(MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger)
+Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
 
 ### Class: SseStreamer
 > Writes SSE (Server-Sent Events) streaming responses for OpenAI-compatible chat completions.
@@ -177,6 +207,7 @@ Cross-package deps: ECAssistant.LLM.Config
 > Manages client connections: registration, heartbeat, eviction.
 Constructor:
   - ClientInfo(string Id, string Name, string Version, DateTime RegisteredAt, DateTime LastHeartbeat, int ActiveSessions)
+Cross-package deps: ECAssistant.LLM.Interfaces
 
 ### Record: ModelInfo
 > Manages multiple loaded models (at least 2: main + embeddings).
@@ -188,4 +219,4 @@ Cross-package deps: LLama, ECAssistant.LLM.Config
 > Registry of all client sessions across the server.
 Constructor:
   - SessionStatusInfo(string ClientId, string SessionId, string ModelId, bool IsPrefilled, int ApproxTokenCount, uint ContextSize, double EstimatedVramMb, DateTime CreatedAt, DateTime LastActivity)
-Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config
+Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
