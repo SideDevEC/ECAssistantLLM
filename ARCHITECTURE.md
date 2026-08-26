@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-08-26 (v1.3 — LDC compliance: 3 new interfaces extracted, 0 enforcement warnings)
+**Updated:** 2026-08-26 (v1.4 — root-based config via --root arg, auto-generate default config, suppressed broken-pipe errors)
 **Status:** ✅ 64 integration tests pass, 0 errors, 0 warnings
 
 ## Overview
