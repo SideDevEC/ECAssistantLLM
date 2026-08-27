@@ -896,6 +896,7 @@ public sealed class RequestRouter : IRequestRouter
             foreach (var img in images)
                 mtmd.LoadMedia(img);
 
+            prompt = prompt.Replace(ECAssistant.LLM.Models.ChatMessageContentConverter.DefaultImageMarker, ECAssistant.LLM.Engine.MtmdMarkerResolver.GetMarkerFor(executor));
             await foreach (var token in executor.InferAsync(prompt, inferenceParams, ct))
                 yield return token;
         }

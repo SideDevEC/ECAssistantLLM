@@ -260,6 +260,8 @@ public sealed class SessionContext : IDisposable
             }
 
             var executor = Executor; // stable reference for the whole stream
+            // Substitute the projector's actual marker for the placeholder written by the converter
+            prompt = prompt.Replace(ECAssistant.LLM.Models.ChatMessageContentConverter.DefaultImageMarker, MtmdMarkerResolver.GetMarkerFor(executor));
             await foreach (var token in executor.InferAsync(prompt, inferenceParams ?? _inferenceParams, ct))
             {
                 sb.Append(token);
