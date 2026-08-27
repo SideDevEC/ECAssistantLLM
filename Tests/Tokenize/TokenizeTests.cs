@@ -7,7 +7,8 @@ namespace ECAssistant.LLM.Tests.Tokenize;
 /// Tests for the ECA tokenize endpoint (POST /eca/tokenize).
 /// </summary>
 [Collection("Server")]
-public class TokenizeTests
+[Trait("Category","E2E")]
+    public class TokenizeTests
 {
     private readonly TestServerFixture _fixture;
 

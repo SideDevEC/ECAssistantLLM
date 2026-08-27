@@ -8,7 +8,8 @@ namespace ECAssistant.LLM.Tests.KvCache;
 /// full create → prefill → save → infer → rewind → reset → destroy lifecycle.
 /// </summary>
 [Collection("Server")]
-public class KvCacheTests
+[Trait("Category","E2E")]
+    public class KvCacheTests
 {
     private readonly TestServerFixture _fixture;
 

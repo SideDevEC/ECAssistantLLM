@@ -10,7 +10,8 @@ namespace ECAssistant.LLM.Tests.Shutdown;
 /// We test that the shutdown endpoint returns 200 and disconnects the calling client.
 /// </summary>
 [Collection("Server")]
-public class ShutdownTests
+[Trait("Category","E2E")]
+    public class ShutdownTests
 {
     private readonly TestServerFixture _fixture;
 

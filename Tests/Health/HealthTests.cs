@@ -7,7 +7,8 @@ namespace ECAssistant.LLM.Tests.Health;
 /// Tests for GET /eca/health.
 /// </summary>
 [Collection("Server")]
-public class HealthTests
+[Trait("Category","E2E")]
+    public class HealthTests
 {
     private readonly TestServerFixture _fixture;
 

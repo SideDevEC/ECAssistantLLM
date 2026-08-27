@@ -8,7 +8,8 @@ namespace ECAssistant.LLM.Tests.Routing;
 /// X-Client-Id defaulting for OpenAI endpoints, and per-client session isolation.
 /// </summary>
 [Collection("Server")]
-public class RoutingTests
+[Trait("Category","E2E")]
+    public class RoutingTests
 {
     private readonly TestServerFixture _fixture;
 

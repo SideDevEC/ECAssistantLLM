@@ -9,7 +9,8 @@ namespace ECAssistant.LLM.Tests.ChatCompletions;
 /// session routing, and parameter overrides.
 /// </summary>
 [Collection("Server")]
-public class ChatCompletionTests
+[Trait("Category","E2E")]
+    public class ChatCompletionTests
 {
     private readonly TestServerFixture _fixture;
 

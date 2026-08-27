@@ -9,7 +9,8 @@ namespace ECAssistant.LLM.Tests.Malformed;
 /// or unexpected values. Server should handle gracefully (400 or tolerant), never 500.
 /// </summary>
 [Collection("Server")]
-public class MalformedRequestTests
+[Trait("Category","E2E")]
+    public class MalformedRequestTests
 {
     private readonly TestServerFixture _fixture;
 

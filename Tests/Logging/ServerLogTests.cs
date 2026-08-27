@@ -8,7 +8,8 @@ namespace ECAssistant.LLM.Tests.Logging;
 /// for startup, client registration, session creation, and errors.
 /// </summary>
 [Collection("Server")]
-public class ServerLogTests
+[Trait("Category","E2E")]
+    public class ServerLogTests
 {
     private readonly TestServerFixture _fixture;
 

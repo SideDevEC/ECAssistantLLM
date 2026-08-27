@@ -9,7 +9,8 @@ namespace ECAssistant.LLM.Tests.Concurrency;
 /// Multiple clients hitting the server simultaneously should all succeed.
 /// </summary>
 [Collection("Server")]
-public class ConcurrentRequestTests
+[Trait("Category","E2E")]
+    public class ConcurrentRequestTests
 {
     private readonly TestServerFixture _fixture;
 

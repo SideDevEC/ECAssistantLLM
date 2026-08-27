@@ -8,7 +8,8 @@ namespace ECAssistant.LLM.Tests.Errors;
 /// unimplemented endpoints, missing headers, not-found sessions, bad JSON.
 /// </summary>
 [Collection("Server")]
-public class ErrorHandlingTests
+[Trait("Category","E2E")]
+    public class ErrorHandlingTests
 {
     private readonly TestServerFixture _fixture;
 

@@ -8,7 +8,8 @@ namespace ECAssistant.LLM.Tests.Clients;
 /// (POST /eca/clients, POST /eca/clients/{id}/heartbeat, DELETE /eca/clients/{id}).
 /// </summary>
 [Collection("Server")]
-public class ClientManagementTests
+[Trait("Category","E2E")]
+    public class ClientManagementTests
 {
     private readonly TestServerFixture _fixture;
 

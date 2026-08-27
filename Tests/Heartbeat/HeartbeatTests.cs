@@ -12,7 +12,8 @@ namespace ECAssistant.LLM.Tests.Heartbeat;
 /// the heartbeat endpoint behavior here.
 /// </summary>
 [Collection("Server")]
-public class HeartbeatTests
+[Trait("Category","E2E")]
+    public class HeartbeatTests
 {
     private readonly TestServerFixture _fixture;
 

@@ -7,7 +7,8 @@ namespace ECAssistant.LLM.Tests.Embeddings;
 /// Tests for the OpenAI-compatible embeddings endpoint.
 /// </summary>
 [Collection("Server")]
-public class EmbeddingsTests
+[Trait("Category","E2E")]
+    public class EmbeddingsTests
 {
     private readonly TestServerFixture _fixture;
 

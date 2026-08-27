@@ -7,7 +7,8 @@ namespace ECAssistant.LLM.Tests.Sessions;
 /// Tests for session lifecycle: create, status, destroy, and validation.
 /// </summary>
 [Collection("Server")]
-public class SessionLifecycleTests
+[Trait("Category","E2E")]
+    public class SessionLifecycleTests
 {
     private readonly TestServerFixture _fixture;
 

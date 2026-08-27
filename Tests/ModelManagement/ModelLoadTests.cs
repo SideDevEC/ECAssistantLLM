@@ -8,7 +8,8 @@ namespace ECAssistant.LLM.Tests.ModelManagement;
 /// Tests for runtime model management: /eca/models/load, /eca/models/unload.
 /// </summary>
 [Collection("Server")]
-public class ModelLoadTests
+[Trait("Category","E2E")]
+    public class ModelLoadTests
 {
     private readonly TestServerFixture _fixture;
 
