@@ -185,6 +185,17 @@ public sealed class RequestRouter : IRequestRouter
         var prompt = BuildPromptFromMessages(req.Messages);
         var inferenceParams = CreateInferenceParams(req);
 
+        // Vision: collect image payloads from all messages (markers are already in Content).
+        var images = req.Messages.Where(m => m.HasImages).SelectMany(m => m.Images).Select(i => i.Data).ToList();
+        var modelSlotForVision = images.Count > 0 ? (_models.TryGetSlot(req.Model) ?? _models.GetMainSlot()) : null;
+
+        if (images.Count > 0 && (modelSlotForVision == null || !modelSlotForVision.SupportsVision))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Model does not support vision — configure mmproj_path for this model.", Type = "invalid_request" } }, 400);
+            return;
+        }
+
         await using var slot = await _scheduler.AcquireAsync(ct);
 
         if (req.Stream)
@@ -192,14 +203,17 @@ public sealed class RequestRouter : IRequestRouter
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
-                tokenStream = session.InferAsync(prompt, inferenceParams, ct);
+                tokenStream = session.InferAsync(prompt, inferenceParams, ct, images);
             }
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = EnableWarmPromptCache
-                    ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
-                    : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
+                tokenStream = images.Count > 0
+                    ? StatelessVisionInferAsync(modelSlot, prompt, inferenceParams, images, ct)
+                    // Vision requests bypass the warm prompt cache — MTMD media queue is global per projector.
+                    : EnableWarmPromptCache
+                        ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
+                        : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
             }
 
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -209,15 +223,18 @@ public sealed class RequestRouter : IRequestRouter
             var sb = new StringBuilder();
             if (session != null)
             {
-                await foreach (var token in session.InferAsync(prompt, inferenceParams, ct))
+                await foreach (var token in session.InferAsync(prompt, inferenceParams, ct, images))
                     sb.Append(token);
             }
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                await foreach (var token in (EnableWarmPromptCache
-                    ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
-                    : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct)))
+                var stream = images.Count > 0
+                    ? StatelessVisionInferAsync(modelSlot, prompt, inferenceParams, images, ct)
+                    : EnableWarmPromptCache
+                        ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
+                        : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
+                await foreach (var token in stream)
                     sb.Append(token);
             }
 
@@ -412,6 +429,7 @@ public sealed class RequestRouter : IRequestRouter
             models_loaded = _models.LoadedModelIds,
             sessions = _sessions.Count,
             clients = _clients.ClientCount,
+            vision = _models.LoadedModelIds.Select(id => _models.TryGetSlot(id)).Any(s => s?.SupportsVision == true),
             uptime_sec = (int)(DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds
         };
         await SseStreamer.WriteJsonAsync(ctx.Response, response);
@@ -853,6 +871,38 @@ public sealed class RequestRouter : IRequestRouter
             Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.StatelessExecutor>.Instance);
         await foreach (var token in executor.InferAsync(prompt, inferenceParams, ct))
             yield return token;
+    }
+
+    /// <summary>
+    /// Stateless inference with vision: fresh context + MTMD executor per request.
+    /// Media is queued into the projector before the prompt runs; cleared after.
+    /// </summary>
+    private static async IAsyncEnumerable<string> StatelessVisionInferAsync(
+        ModelSlot slot,
+        string prompt,
+        LLama.Common.InferenceParams inferenceParams,
+        IReadOnlyList<byte[]> images,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var mtmd = slot.Mmproj ?? throw new InvalidOperationException("mmproj not loaded for vision request");
+        using var context = slot.Weights!.CreateContext(slot.Params);
+        var executor = mtmd != null
+            ? new LLama.InteractiveExecutor(context, mtmd, Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.LLamaContext>.Instance)
+            : new LLama.InteractiveExecutor(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.LLamaContext>.Instance);
+
+        try
+        {
+            mtmd.ClearMedia();
+            foreach (var img in images)
+                mtmd.LoadMedia(img);
+
+            await foreach (var token in executor.InferAsync(prompt, inferenceParams, ct))
+                yield return token;
+        }
+        finally
+        {
+            try { mtmd.ClearMedia(); } catch { }
+        }
     }
 
 }

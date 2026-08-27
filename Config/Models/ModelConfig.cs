@@ -34,4 +34,15 @@ public sealed class ModelConfig
     /// <summary>Pooling type for embedding models. "mean" (default), "cls", "last", "none".</summary>
     [JsonPropertyName("pooling_type")]
     public string PoolingType { get; set; } = "mean";
+
+    /// <summary>
+    /// Optional path to an mmproj projector file for vision models (MTMD).
+    /// When set, the model accepts image content parts in chat completion requests.
+    /// </summary>
+    [JsonPropertyName("mmproj_path")]
+    public string? MmprojPath { get; set; }
+
+    /// <summary>True when vision is enabled via mmproj_path.</summary>
+    [JsonIgnore]
+    public bool SupportsVision => !string.IsNullOrWhiteSpace(MmprojPath);
 }

@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ECAssistant.LLM.Models;
@@ -11,6 +13,7 @@ public sealed class ChatCompletionRequest
     public string Model { get; set; } = "main";
 
     [JsonPropertyName("messages")]
+    [JsonConverter(typeof(ChatMessageContentConverter))]
     public List<ChatMessage> Messages { get; set; } = new();
 
     [JsonPropertyName("stream")]
@@ -44,6 +47,154 @@ public sealed class ChatMessage
     [JsonPropertyName("role")]
     public string Role { get; set; } = "user";
 
-    [JsonPropertyName("content")]
+    /// <summary>
+    /// Plain text content. String form is stored verbatim; array form joins text parts
+    /// and inserts an image marker per image part (see ChatMessageContentConverter).
+    /// </summary>
     public string Content { get; set; } = "";
+
+    /// <summary>Decoded image payloads from content parts (in order of appearance). Empty when none.</summary>
+    public IReadOnlyList<VisionImage> Images { get; set; } = Array.Empty<VisionImage>();
+
+    [JsonIgnore]
+    public bool HasImages => Images.Count > 0;
+}
+
+/// <summary>One image from an image_url content part (base64 data URI decoded to raw bytes).</summary>
+public sealed record VisionImage(string MimeType, byte[] Data);
+
+public sealed class ChatMessageContentConverter : JsonConverter<List<ChatMessage>>
+{
+    /// <summary>llama.cpp MTMD default media marker — used as placeholder for each image part.</summary>
+    public const string DefaultImageMarker = "<__image__>";
+
+    public override List<ChatMessage> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+            throw new JsonException($"Unexpected chat messages token type: {reader.TokenType}");
+
+        var messages = new List<ChatMessage>();
+
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndArray) break;
+            if (reader.TokenType != JsonTokenType.StartObject) continue;
+
+            var msg = new ChatMessage();
+            var text = new StringBuilder();
+            var images = new List<VisionImage>();
+
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject) break;
+                if (reader.TokenType != JsonTokenType.PropertyName) continue;
+
+                var prop = reader.GetString();
+                if (!reader.Read()) break;
+                if (reader.TokenType is JsonTokenType.Comment)
+                { reader.Skip(); continue; }
+
+                switch (prop)
+                {
+                    case "role":
+                        msg.Role = reader.GetString() ?? "user";
+                        break;
+                    case "content":
+                        if (reader.TokenType == JsonTokenType.String)
+                        {
+                            text.Append(reader.GetString());
+                        }
+                        else if (reader.TokenType == JsonTokenType.StartArray)
+                        {
+                            ParseContentParts(ref reader, text, images);
+                        }
+                        else if (reader.TokenType is JsonTokenType.Null or JsonTokenType.Number
+                                 or JsonTokenType.True or JsonTokenType.False)
+                        {
+                            // Tolerate non-string content (null / numbers) — treated as empty.
+                        }
+                        else throw new JsonException($"Unexpected message content token type: {reader.TokenType}");
+                        break;
+                    default:
+                        reader.Skip();
+                        break;
+                }
+            }
+
+            msg.Content = text.ToString();
+            msg.Images = images;
+            messages.Add(msg);
+        }
+
+        return messages;
+    }
+
+    private static void ParseContentParts(ref Utf8JsonReader reader, StringBuilder text, List<VisionImage> images)
+    {
+        var depth = 0;
+        // Iterate part objects in the array
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndArray && depth == 0) return;
+
+            if (reader.TokenType == JsonTokenType.StartObject)
+            {
+                using var part = JsonDocument.ParseValue(ref reader);
+                var root = part.RootElement;
+                var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+
+                if (type == "text" && root.TryGetProperty("text", out var txt))
+                    text.Append(txt.GetString());
+                else if (type == "image_url")
+                {
+                    var url = root.TryGetProperty("image_url", out var iu) && iu.ValueKind == JsonValueKind.Object && iu.TryGetProperty("url", out var u)
+                        ? u.GetString()
+                        : null;
+                    var img = ParseDataUri(url);
+                    if (img == null)
+                        throw new JsonException("Only base64 data-URI image_url parts are supported by this server.");
+                    text.Append(DefaultImageMarker);
+                    images.Add(img);
+                }
+                // unknown part types ignored for forward compatibility
+                continue;
+            }
+
+            // Track nesting for primitive/other tokens until EndArray at depth 0
+            if (reader.TokenType == JsonTokenType.StartArray || reader.TokenType == JsonTokenType.StartObject)
+                depth++;
+            else if (reader.TokenType == JsonTokenType.EndArray || reader.TokenType == JsonTokenType.EndObject)
+                depth--;
+        }
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<ChatMessage> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartArray();
+        foreach (var m in value)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("role", m.Role);
+            writer.WriteString("content", m.Content);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static VisionImage? ParseDataUri(string? url)
+    {
+        const string prefix = "data:";
+        if (string.IsNullOrEmpty(url) || !url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return null;
+        var semi = url.IndexOf(';');
+        var comma = url.IndexOf(',');
+        if (semi < 0 || comma < semi || !url.Substring(semi + 1, comma - semi - 1).Equals("base64", StringComparison.OrdinalIgnoreCase))
+            return null;
+        try
+        {
+            var data = Convert.FromBase64String(url[(comma + 1)..]);
+            return new VisionImage(url[prefix.Length..semi], data);
+        }
+        catch (FormatException) { return null; }
+    }
 }

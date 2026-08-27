@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-27T10:38:36.575056+00:00
-Packages: 2  |  Types: 100
+Generated: 2026-08-27T11:15:11.212042+00:00
+Packages: 2  |  Types: 104
 
 ---
 
-## ECAssistantLLM (77 types, ~4678 LOC)
+## ECAssistantLLM (80 types, ~4949 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -15,6 +15,8 @@ Packages: 2  |  Types: 100
 - 🟡 ChatCompletionRequest  (ECAssistantLLM)
 - 🟡 ChatCompletionTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ChatMessage  (ECAssistantLLM)
+- 🟡 ChatMessageContentConverter : JsonConverter<List<ChatMessage>>  (ECAssistantLLM)
+- 🟡 ChatMessageContentConverterTests  (ECAssistantLLM)
 - 🟡 ChunkChoice  (ECAssistantLLM)
 - 🟡 ChunkDelta  (ECAssistantLLM)
 - 🟡 ClientAuthTests  (ECAssistantLLM)
@@ -72,7 +74,7 @@ Packages: 2  |  Types: 100
 - 🟡 ServerLogTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ServerLogger : ILogger  (ECAssistantLLM)  deps: [LogLevel minLevel =, string? logFile =]
 - 🟡 ServerSection  (ECAssistantLLM)
-- 🟡 SessionContext : IDisposable  (ECAssistantLLM)  deps: [string, string, string, LLamaWeights, ModelParams, InferenceParams, ILogger]
+- 🟡 SessionContext : IDisposable  (ECAssistantLLM)  deps: [string, string, string, LLamaWeights, ModelParams, InferenceParams, ILogger, MtmdWeights? mtmd =]
 - 🟡 SessionLifecycleTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SessionRegistry : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger, MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger, VramBudget]
 - 🟣 SessionStatusInfo  (ECAssistantLLM)  deps: [string, string, string, bool, int, uint, double, DateTime, DateTime]
@@ -83,11 +85,13 @@ Packages: 2  |  Types: 100
 - 🟡 TokenizeRequest  (ECAssistantLLM)
 - 🟡 TokenizeResponse  (ECAssistantLLM)
 - 🟡 TokenizeTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟣 VisionImage  (ECAssistantLLM)  deps: [string, byte]
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 
-## Tests (23 types, ~2056 LOC)
+## Tests (24 types, ~2125 LOC)
 
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ChatMessageContentConverterTests  (Tests)
 - 🟡 ClientAuthTests  (Tests)
 - 🟡 ClientManagementTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ConcurrentRequestTests  (Tests)  deps: [TestServerFixture]

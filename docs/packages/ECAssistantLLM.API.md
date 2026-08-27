@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 77  |  LOC: 4678  |  ~3173 tokens
+Types: 80  |  LOC: 4949  |  ~3288 tokens
 
 ---
 
@@ -51,6 +51,14 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: ChatMessage
 > OpenAI-compatible chat completion request.
+
+### Class: ChatMessageContentConverter
+> OpenAI-compatible chat completion request.
+Implements: JsonConverter<List<ChatMessage>>
+
+### Class: ChatMessageContentConverterTests
+> Multimodal content parsing: plain strings, content-part arrays, data-URI images.
+Cross-package deps: ECAssistant.LLM.Models, Xunit
 
 ### Class: ChunkChoice
 > SSE streaming chunk (OpenAI format).
@@ -299,7 +307,7 @@ Constructor:
 > Per-session inference state: own InteractiveExecutor + KV cache.
 Implements: IDisposable
 Constructor:
-  - SessionContext(string clientId, string sessionId, string modelId, LLamaWeights weights, ModelParams modelParams, InferenceParams inferenceParams, ILogger logger)
+  - SessionContext(string clientId, string sessionId, string modelId, LLamaWeights weights, ModelParams modelParams, InferenceParams inferenceParams, ILogger logger, MtmdWeights? mtmd = null)
 Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config
 
 ### Class: SessionLifecycleTests
@@ -366,3 +374,8 @@ Cross-package deps: LLama, ECAssistant.LLM.Config
 Constructor:
   - SessionStatusInfo(string ClientId, string SessionId, string ModelId, bool IsPrefilled, int ApproxTokenCount, uint ContextSize, double EstimatedVramMb, DateTime CreatedAt, DateTime LastActivity)
 Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
+
+### Record: VisionImage
+> OpenAI-compatible chat completion request.
+Constructor:
+  - VisionImage(string MimeType, byte[] Data)

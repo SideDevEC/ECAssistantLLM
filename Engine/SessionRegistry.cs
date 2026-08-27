@@ -58,7 +58,8 @@ public sealed class SessionRegistry : IDisposable
 
         var context = new SessionContext(
             clientId, sessionId, slot.Id,
-            slot.Weights!, slot.Params, inferenceParams, _logger);
+            slot.Weights!, slot.Params, inferenceParams, _logger,
+            mtmd: slot.Mmproj);
 
         // Atomic add — prevents two concurrent creates from silently overwriting (leaking KV cache)
         if (!_sessions.TryAdd(key, context))

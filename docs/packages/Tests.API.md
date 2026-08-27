@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 23  |  LOC: 2056  |  ~1132 tokens
+Types: 24  |  LOC: 2125  |  ~1176 tokens
 
 ---
 
@@ -9,6 +9,10 @@ Types: 23  |  LOC: 2056  |  ~1132 tokens
 Constructor:
   - ChatCompletionTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: ChatMessageContentConverterTests
+> Multimodal content parsing: plain strings, content-part arrays, data-URI images.
+Cross-package deps: ECAssistant.LLM.Models, Xunit
 
 ### Class: ClientAuthTests
 > Lightweight server harness for auth/security tests.

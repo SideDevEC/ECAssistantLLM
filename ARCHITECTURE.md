@@ -231,7 +231,16 @@ executable). `Validate` enforces: port 1–65535, ≥1 model, unique non-empty m
 Section semantics:
 
 - **`server`** — binding (`host`/`port` → computed `Prefix`), session cap, VRAM budget, heartbeat cadence. `gpu_layers`, `threads`, `batch_size` are **server-side** concerns (not in Core config). `--port <N>` on the CLI overrides `server.port` after config load.
-- **`models`** — one `ModelConfig` each. `gpu_layers` is clamped to `[0,100]`; `threads: -1` → auto; `batch_size: 0` → LLamaSharp default. First non-embedding model = **main**; first embedding model = **embeddings**. Embedding models use `pooling_type` (`mean`/`cls`/`last`/`none`, default `mean`).
+- **`models`** — one `ModelConfig` each. `gpu_layers` is clamped to `[0,100]`; `threads: -1` → auto; `batch_size: 0` → LLamaSharp default. First non-embedding model = **main**; first embedding model = **embeddings**. Embedding models use `pooling_type` (`mean`/`cls`/`last`/`none`, default `mean`). `mmproj_path` (optional) enables vision: MTMD projector loaded lazily from the mmproj GGUF on first vision request (`SupportsVision` = true).
+
+## Vision (MTMD / mmproj)
+
+- **Request format:** OpenAI multimodal content parts — `"content": [{"type":"text","text":...},{"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}]`. Parsed by `ChatMessageContentConverter` (on the `messages` array): text parts joined, each image part becomes an `<__image__>` marker in `Content` + decoded bytes in `Images`. Only base64 data URIs are accepted (no URL fetch).
+- **Model wiring:** `ModelSlot.Mmproj` lazily loads `MtmdWeights.LoadFromFile(mmproj_path, weights)` on first use. Sessions created via `SessionRegistry.CreateSession` attach the slot's projector; `SessionContext.Reset` preserves it.
+- **Warm sessions:** `SessionContext.InferAsync(prompt, ct, images)` — under `_ioLock`, media is queued into the projector FIFO before inference (one marker per image, in order), cleared after.
+- **Stateless:** `StatelessVisionInferAsync` builds a fresh context + MTMD executor per request. Vision requests always bypass the warm prompt cache (the projector's media queue is global per model).
+- **Capability:** `/eca/health` returns `"vision": true` when any loaded model has vision. Vision requests to non-vision models → 400.
+
 - **`inference`** — default sampling params, overridable per-request via `temperature`/`top_p`/`top_k`/`max_tokens`/`repeat_penalty` on the chat request.
 - **`logging`** — `level` (`debug`/`info`/`warn`/`error`) + log file path (resolved relative to the config dir).
 

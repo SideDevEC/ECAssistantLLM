@@ -36,6 +36,9 @@ public sealed class SessionContext : IDisposable
     /// <summary>Default inference params for this session.</summary>
     private readonly InferenceParams _inferenceParams;
 
+    /// <summary>MTMD projector shared with this model's slot (null = text-only). NOT owned by this context.</summary>
+    private readonly MtmdWeights? _mtmd;
+
     /// <summary>LLamaContext (owns the KV cache). null after reset, recreated on demand.</summary>
     private LLamaContext? _context;
     // Serializes KV-cache mutations (Reset) against streaming reads (Prefill/Infer).
@@ -72,7 +75,8 @@ public sealed class SessionContext : IDisposable
         LLamaWeights weights,
         ModelParams modelParams,
         InferenceParams inferenceParams,
-        ILogger logger)
+        ILogger logger,
+        MtmdWeights? mtmd = null)
     {
         ClientId = clientId ?? throw new ArgumentNullException(nameof(clientId));
         SessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
@@ -84,14 +88,18 @@ public sealed class SessionContext : IDisposable
         _weights = weights;
         _modelParams = modelParams;
         _inferenceParams = inferenceParams;
+        _mtmd = mtmd;
 
         // Create context + executor (own KV cache)
         var nullLog = Microsoft.Extensions.Logging.Abstractions.NullLogger<LLamaContext>.Instance;
         _context = _weights.CreateContext(_modelParams);
-        Executor = new InteractiveExecutor(_context, nullLog);
+        Executor = CreateExecutor(nullLog);
 
         EstimatedVramMb = EstimateVramMb();
     }
+
+    private InteractiveExecutor CreateExecutor(Microsoft.Extensions.Logging.ILogger<LLamaContext> nullLog)
+        => _mtmd != null ? new InteractiveExecutor(_context!, _mtmd, nullLog) : new InteractiveExecutor(_context!, nullLog);
 
     /// <summary>
     /// Prefill the KV cache with a static prefix (system prompt + tools).
@@ -209,7 +217,7 @@ public sealed class SessionContext : IDisposable
             var newContext = _weights.CreateContext(_modelParams);
             var oldContext = _context;
             _context = newContext;
-            Executor = new InteractiveExecutor(newContext, nullLog);
+            Executor = CreateExecutor(nullLog);
             oldContext?.Dispose();
 
             _savedState = null;
@@ -225,13 +233,17 @@ public sealed class SessionContext : IDisposable
 
     /// <summary>
     /// Infer with streaming (token by token).
+    /// When images are provided, they are queued into the MTMD projector before the prompt
+    /// runs — the prompt must contain one media marker per image, in order.
     /// </summary>
-    public async IAsyncEnumerable<string> InferAsync(string prompt, InferenceParams? inferenceParams = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    public async IAsyncEnumerable<string> InferAsync(string prompt, InferenceParams? inferenceParams = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default, IReadOnlyList<byte[]>? images = null)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(SessionContext));
         if (Executor == null)
             throw new InvalidOperationException("Session executor is null (reset not called?)");
+        if (images is { Count: > 0 } && _mtmd == null)
+            throw new InvalidOperationException("Model has no mmproj loaded — images are not supported on this session.");
 
         LastActivity = DateTime.UtcNow;
 
@@ -239,6 +251,14 @@ public sealed class SessionContext : IDisposable
         await _ioLock.WaitAsync(ct);
         try
         {
+            // Queue media into the projector so tokenizer consumes them FIFO at each marker.
+            if (_mtmd != null && images is { Count: > 0 })
+            {
+                _mtmd.ClearMedia();
+                foreach (var img in images)
+                    _mtmd.LoadMedia(img);
+            }
+
             var executor = Executor; // stable reference for the whole stream
             await foreach (var token in executor.InferAsync(prompt, inferenceParams ?? _inferenceParams, ct))
             {
@@ -248,6 +268,7 @@ public sealed class SessionContext : IDisposable
         }
         finally
         {
+            try { _mtmd?.ClearMedia(); } catch { }
             _ioLock.Release();
         }
 

@@ -38,6 +38,16 @@ public sealed class ModelSlot : IDisposable
     /// <summary>Vector dimension for embedding models (0 until first embed call).</summary>
     public int EmbeddingDim { get; private set; }
 
+    /// <summary>
+    /// Loaded MTMD (mmproj) projector for vision models. null until first use
+    /// or when no mmproj_path is configured. Lazy: loaded on first vision request.
+    /// </summary>
+    public MtmdWeights? Mmproj => _mmproj ??= TryLoadMmproj();
+    private MtmdWeights? _mmproj;
+
+    /// <summary>True when this model accepts image input (mmproj configured).</summary>
+    public bool SupportsVision => Config.SupportsVision;
+
     public ModelSlot(string id, ModelConfig config, ILogger logger)
     {
         Id = id ?? throw new ArgumentNullException(nameof(id));
@@ -90,9 +100,30 @@ public sealed class ModelSlot : IDisposable
     {
         Embedder?.Dispose();
         Embedder = null;
+        _mmproj?.Dispose();
+        _mmproj = null;
         Weights?.Dispose();
         Weights = null;
         _logger.Info("ModelSlot", $"Unloaded model '{Id}'");
+    }
+
+    private MtmdWeights? TryLoadMmproj()
+    {
+        if (!SupportsVision || _disposed || Weights == null) return null;
+        try
+        {
+            var path = Config.MmprojPath!;
+            if (!Path.IsPathRooted(path))
+                path = ResolveModelPath(path);
+            var mtmd = MtmdWeights.LoadFromFile(path, Weights!, MtmdContextParams.Default());
+            _logger.Info("ModelSlot", $"Loaded mmproj projector '{Path.GetFileName(path)}' for model '{Id}' — vision enabled");
+            return mtmd;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("ModelSlot", $"Failed to load mmproj for '{Id}': {ex.Message} — vision disabled");
+            return null;
+        }
     }
 
     private static ModelParams CreateModelParams(ModelConfig config, string? resolvedPath = null)
