@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-08-26 (v1.4 — root-based config via --root arg, auto-generate default config, suppressed broken-pipe errors)
+**Updated:** 2026-08-27 (v1.5 — Option B warm prompt cache: PromptCacheSession/Manager, OFF by default for hybrid DeltaNet models; upstream llama.cpp bug)
 **Status:** ✅ 64 integration tests pass, 0 errors, 0 warnings
 
 ## Overview
@@ -120,6 +120,7 @@ for `NullLogger<T>` used to silence LLamaSharp's own logging). The HTTP layer ad
 | `InferenceScheduler` | Serializes all inference via `SemaphoreSlim(1,1)` FIFO; `AcquireAsync` returns a disposable `InferenceReleaser` (nested, `IAsyncDisposable`) |
 | `VramBudget` | Lock-guarded estimated-VRAM accounting; `TryReserve`/`Release`; `null` max = unlimited |
 | `ClientManager` | Client registration (UUID id), heartbeat recording, disconnect (frees all client sessions), and a `Timer`-driven eviction of stale clients |
+| `PromptCacheSession` | Persistent warm prompt-cache per model using only supported `SaveState`/`LoadState` snapshots on fresh executors. Reuse paths: growth (suffix decode) → stable-template checkpoint → cold. Runs only when `RequestRouter.EnableWarmPromptCache = true` |
 
 ### Server
 
@@ -269,3 +270,9 @@ Section semantics:
   whitespace client names → 400 (`IsNullOrWhiteSpace`), missing sessions → 404.
 - **Integration tests:** 64 tests covering all endpoints (health, clients, sessions, KV cache,
   chat completions, text completions, embeddings, models, tokenize, error handling, routing).
+- **Warm prompt cache (`EnableWarmPromptCache`) is OFF by default.** Safe and verified on
+  plain-attention models (~9× speedup on Qwen3-8B). On hybrid Gated-DeltaNet models
+  (Qwen3.x-35B-A3B) restored snapshots progressively corrupt output: an upstream llama.cpp bug —
+  `copy_cell` passes a byte count to `ggml_view_1d` (expects elements) during recurrent-state
+  checkpoint/restore (PR #20700, closed unmerged; see issues #21681/#22384). Revisit when the
+  fix lands upstream; until then stateless calls use `StatelessExecutor` cold path.

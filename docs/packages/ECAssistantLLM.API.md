@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 51  |  LOC: 2291  |  ~1849 tokens
+Types: 77  |  LOC: 4678  |  ~3173 tokens
 
 ---
 
@@ -43,6 +43,12 @@ Methods:
 ### Class: ChatCompletionRequest
 > OpenAI-compatible chat completion request.
 
+### Class: ChatCompletionTests
+> Tests for OpenAI-compatible chat completions (streaming + non-streaming),
+Constructor:
+  - ChatCompletionTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
 ### Class: ChatMessage
 > OpenAI-compatible chat completion request.
 
@@ -51,6 +57,16 @@ Methods:
 
 ### Class: ChunkDelta
 > SSE streaming chunk (OpenAI format).
+
+### Class: ClientAuthTests
+> Lightweight server harness for auth/security tests.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
+
+### Class: ClientManagementTests
+> Tests for client registration, heartbeat and disconnect
+Constructor:
+  - ClientManagementTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: ClientManager
 > Manages client connections: registration, heartbeat, eviction.
@@ -80,6 +96,12 @@ Cross-package deps: ECAssistant.LLM.Interfaces
 ### Class: CompletionResponse
 > OpenAI-compatible text completion request.
 
+### Class: ConcurrentRequestTests
+> Tests for concurrent access to the LLM server.
+Constructor:
+  - ConcurrentRequestTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
 ### Class: CreateSessionRequest
 > Generic API error response.
 
@@ -89,17 +111,41 @@ Cross-package deps: ECAssistant.LLM.Interfaces
 
 ### Class: EmbeddingResponse
 
+### Class: EmbeddingsTests
+> Tests for the OpenAI-compatible embeddings endpoint.
+Constructor:
+  - EmbeddingsTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
 ### Class: ErrorDetail
 > Generic API error response.
 
+### Class: ErrorHandlingTests
+> Cross-cutting error-handling tests: unknown paths, wrong methods,
+Constructor:
+  - ErrorHandlingTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
 ### Class: ErrorResponse
 > Generic API error response.
+
+### Class: HealthTests
+> Tests for GET /eca/health.
+Constructor:
+  - HealthTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: HeartbeatRequest
 > Generic API error response.
 
 ### Class: HeartbeatResponse
 > Generic API error response.
+
+### Class: HeartbeatTests
+> Tests for heartbeat mechanism. Uses the main TestServerFixture (timeout 300s).
+Constructor:
+  - HeartbeatTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: InferenceDefaults
 > Default inference parameters. Can be overridden per request.
@@ -110,6 +156,12 @@ Implements: IInferenceScheduler
 Constructor:
   - InferenceScheduler(ILogger logger)
 Cross-package deps: ECAssistant.LLM.Interfaces
+
+### Class: KvCacheTests
+> Tests for KV-cache operations: prefill, save-state, rewind, reset, and the
+Constructor:
+  - KvCacheTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: LlmHttpServer
 > Main HTTP server using HttpListener. Routes requests to OpenAI and ECAssistant endpoints.
@@ -127,8 +179,25 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 ### Class: LoggingSection
 > Logging configuration for the server.
 
+### Class: MalformedRequestTests
+> Tests for malformed requests — valid JSON but wrong types, missing fields,
+Constructor:
+  - MalformedRequestTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
 ### Class: ModelConfig
 > Configuration for a single model hosted by the server.
+
+### Class: ModelLoadTests
+> Tests for runtime model management: /eca/models/load, /eca/models/unload.
+Constructor:
+  - ModelLoadTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: ModelPathRestrictionTests
+> Lightweight server harness for auth/security tests.
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
 
 ### Class: ModelSlot
 > One loaded model: weights + params + status.
@@ -136,6 +205,12 @@ Implements: IDisposable
 Constructor:
   - ModelSlot(string id, ModelConfig config, ILogger logger)
 Cross-package deps: LLama, LLama.Common, LLama.Native, ECAssistant.LLM.Config
+
+### Class: ModelsTests
+> Tests for the model catalog endpoints (GET /v1/models and GET /eca/models).
+Constructor:
+  - ModelsTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: MultiModelHost
 > Manages multiple loaded models (at least 2: main + embeddings).
@@ -150,6 +225,28 @@ Cross-package deps: LLama, ECAssistant.LLM.Config
 ### Class: PrefillResponse
 > Generic API error response.
 
+### Class: PrefixMath
+> Pure helpers for prompt-cache bookkeeping.
+Cross-package deps: LLama.Native
+
+### Class: PrefixMathTests
+> Pure-math tests for prompt-cache common-prefix bookkeeping.
+Cross-package deps: LLama.Native, ECAssistant.LLM.Engine
+
+### Class: PromptCacheSession
+> Persistent prompt-cache session reusing warm KV state across stateless/background calls
+Implements: IDisposable
+Constructor:
+  - PromptCacheSession(string modelId, LLamaWeights weights, ModelParams modelParams, ILogger logger)
+Cross-package deps: LLama, LLama.Common
+
+### Class: PromptCacheSessionManager
+> Owns one <see cref="PromptCacheSession"/> per model slot (lazily created).
+Implements: IDisposable
+Constructor:
+  - PromptCacheSessionManager(MultiModelHost models, ILogger logger)
+Cross-package deps: LLama.Common
+
 ### Class: RequestRouter
 > Routes incoming HTTP requests to the appropriate handler.
 Implements: IRequestRouter
@@ -162,6 +259,32 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 
 ### Class: RewindResponse
 > Generic API error response.
+
+### Class: RouteMethodTests
+> Lightweight server harness for auth/security tests.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
+
+### Class: RoutingTests
+> Tests for client routing and session namespacing:
+Constructor:
+  - RoutingTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: SecurityHarness
+> Lightweight server harness for auth/security tests.
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
+
+### Class: ServerCollection
+> Shared collection so all integration tests use the single
+Implements: TestServerFixture>
+Cross-package deps: Xunit
+
+### Class: ServerLogTests
+> Tests that the server creates log files and writes meaningful entries
+Constructor:
+  - ServerLogTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: ServerLogger
 > Simple file + console logger for the LLM server.
@@ -179,12 +302,24 @@ Constructor:
   - SessionContext(string clientId, string sessionId, string modelId, LLamaWeights weights, ModelParams modelParams, InferenceParams inferenceParams, ILogger logger)
 Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config
 
+### Class: SessionLifecycleTests
+> Tests for session lifecycle: create, status, destroy, and validation.
+Constructor:
+  - SessionLifecycleTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
 ### Class: SessionRegistry
 > Registry of all client sessions across the server.
 Implements: IDisposable
 Constructor:
-  - SessionRegistry(MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger)
+  - SessionRegistry(MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger, MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger, VramBudget? vram)
 Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
+
+### Class: ShutdownTests
+> Tests for the /eca/shutdown endpoint.
+Constructor:
+  - ShutdownTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: SseStreamer
 > Writes SSE (Server-Sent Events) streaming responses for OpenAI-compatible chat completions.
@@ -193,9 +328,20 @@ Cross-package deps: ECAssistant.LLM.Models
 ### Class: SuccessResponse
 > Generic API error response.
 
+### Class: TestServerFixture
+> Shared integration-test fixture. Starts the real ECAssistantLLM HTTP server
+Implements: IAsyncLifetime
+Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
+
 ### Class: TokenizeRequest
 
 ### Class: TokenizeResponse
+
+### Class: TokenizeTests
+> Tests for the ECA tokenize endpoint (POST /eca/tokenize).
+Constructor:
+  - TokenizeTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: VramBudget
 > Tracks total VRAM usage across all sessions.

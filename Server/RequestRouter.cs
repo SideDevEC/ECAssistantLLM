@@ -21,6 +21,16 @@ public sealed class RequestRouter : IRequestRouter
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
+    private readonly PromptCacheSessionManager _promptCache;
+
+    /// <summary>
+    /// Warm prompt-cache routing for stateless calls. DISABLED by default pending upstream
+    /// verification: SaveState/LoadState appears not to capture Gated Delta Net recurrent
+    /// state on Qwen3.6-35B-A3B (hybrid arch), causing progressively degraded outputs on
+    /// repeated restores. Plain-attention models (Qwen3-8B) verified OK. Re-enable once a
+    /// snapshot-faithful path is confirmed.
+    /// </summary>
+    public static bool EnableWarmPromptCache { get; set; } = false;
 
     public RequestRouter(
         MultiModelHost models,
@@ -40,6 +50,7 @@ public sealed class RequestRouter : IRequestRouter
         _config = config;
         _logger = logger;
         _cts = cts;
+        _promptCache = new PromptCacheSessionManager(models, logger);
     }
 
     public async Task RouteAsync(HttpListenerContext ctx, CancellationToken ct)
@@ -186,7 +197,9 @@ public sealed class RequestRouter : IRequestRouter
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
+                tokenStream = EnableWarmPromptCache
+                    ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
+                    : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
             }
 
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -202,7 +215,9 @@ public sealed class RequestRouter : IRequestRouter
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                await foreach (var token in StatelessInferAsync(modelSlot, prompt, inferenceParams, ct))
+                await foreach (var token in (EnableWarmPromptCache
+                    ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
+                    : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct)))
                     sb.Append(token);
             }
 
@@ -278,7 +293,9 @@ public sealed class RequestRouter : IRequestRouter
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
+                tokenStream = EnableWarmPromptCache
+                    ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
+                    : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
             }
 
             await SseStreamer.StreamCompletionAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -295,7 +312,9 @@ public sealed class RequestRouter : IRequestRouter
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                await foreach (var token in StatelessInferAsync(modelSlot, prompt, inferenceParams, ct))
+                await foreach (var token in (EnableWarmPromptCache
+                    ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
+                    : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct)))
                     sb.Append(token);
             }
 
@@ -822,6 +841,7 @@ public sealed class RequestRouter : IRequestRouter
         };
     }
 
+    /// <summary>Cold stateless inference — fresh executor per call (pre-cache behavior).</summary>
     private static async IAsyncEnumerable<string> StatelessInferAsync(
         ModelSlot slot,
         string prompt,
@@ -831,8 +851,8 @@ public sealed class RequestRouter : IRequestRouter
         var executor = new LLama.StatelessExecutor(
             slot.Weights!, slot.Params,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.StatelessExecutor>.Instance);
-
         await foreach (var token in executor.InferAsync(prompt, inferenceParams, ct))
             yield return token;
     }
+
 }

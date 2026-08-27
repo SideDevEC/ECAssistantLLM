@@ -11,7 +11,7 @@ public sealed class ServerSection
     public string Host { get; set; } = "localhost";
 
     [JsonPropertyName("port")]
-    public int Port { get; set; } = 8420;
+    public int Port { get; set; } = 58777;
 
     [JsonPropertyName("max_sessions")]
     public int MaxSessions { get; set; } = 8;
@@ -45,7 +45,7 @@ public sealed class ServerSection
     public string? ModelsRoot { get; set; }
 
     /// <summary>
-    /// Base URL for HttpListener prefix. e.g. http://localhost:8420/
+    /// Base URL for HttpListener prefix. e.g. http://localhost:58777/
     /// </summary>
     [JsonIgnore]
     public string Prefix => $"http://{Host}:{Port}/";

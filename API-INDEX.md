@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-26T11:58:23.122053+00:00
-Packages: 1  |  Types: 51
+Generated: 2026-08-27T10:20:12.211131+00:00
+Packages: 2  |  Types: 100
 
 ---
 
-## ECAssistantLLM (51 types, ~2291 LOC)
+## ECAssistantLLM (77 types, ~4678 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -13,10 +13,13 @@ Packages: 1  |  Types: 51
 - 🔵 IRequestRouter  (ECAssistantLLM)
 - 🟡 ChatCompletionChunk  (ECAssistantLLM)
 - 🟡 ChatCompletionRequest  (ECAssistantLLM)
+- 🟡 ChatCompletionTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ChatMessage  (ECAssistantLLM)
 - 🟡 ChunkChoice  (ECAssistantLLM)
 - 🟡 ChunkDelta  (ECAssistantLLM)
+- 🟡 ClientAuthTests  (ECAssistantLLM)
 - 🟣 ClientInfo  (ECAssistantLLM)  deps: [string, string, string, DateTime, DateTime, int]
+- 🟡 ClientManagementTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ClientManager : IClientManager, IDisposable  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action]
 - 🟡 ClientRegisterRequest  (ECAssistantLLM)
 - 🟡 ClientRegisterResponse  (ECAssistantLLM)
@@ -25,36 +28,85 @@ Packages: 1  |  Types: 51
 - 🟡 CompletionChunkChoice  (ECAssistantLLM)
 - 🟡 CompletionRequest  (ECAssistantLLM)
 - 🟡 CompletionResponse  (ECAssistantLLM)
+- 🟡 ConcurrentRequestTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 CreateSessionRequest  (ECAssistantLLM)
 - 🟡 EmbeddingData  (ECAssistantLLM)
 - 🟡 EmbeddingRequest  (ECAssistantLLM)
 - 🟡 EmbeddingResponse  (ECAssistantLLM)
+- 🟡 EmbeddingsTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ErrorDetail  (ECAssistantLLM)
+- 🟡 ErrorHandlingTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ErrorResponse  (ECAssistantLLM)
+- 🟡 HealthTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 HeartbeatRequest  (ECAssistantLLM)
 - 🟡 HeartbeatResponse  (ECAssistantLLM)
+- 🟡 HeartbeatTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 InferenceDefaults  (ECAssistantLLM)
 - 🟡 InferenceScheduler : IInferenceScheduler  (ECAssistantLLM)  deps: [ILogger]
+- 🟡 KvCacheTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =]
 - 🟡 LlmServerConfig  (ECAssistantLLM)
 - 🟡 LoadModelRequest  (ECAssistantLLM)
 - 🟡 LoggingSection  (ECAssistantLLM)
+- 🟡 MalformedRequestTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ModelConfig  (ECAssistantLLM)
 - 🟣 ModelInfo  (ECAssistantLLM)  deps: [string, string, bool, bool, int, uint, int]
+- 🟡 ModelLoadTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 ModelPathRestrictionTests : IDisposable  (ECAssistantLLM)
 - 🟡 ModelSlot : IDisposable  (ECAssistantLLM)  deps: [string, ModelConfig, ILogger]
+- 🟡 ModelsTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger]
 - 🟡 PrefillRequest  (ECAssistantLLM)
 - 🟡 PrefillResponse  (ECAssistantLLM)
+- 🟡 PrefixMath  (ECAssistantLLM)
+- 🟡 PrefixMathTests  (ECAssistantLLM)
+- 🟡 PromptCacheSession : IDisposable  (ECAssistantLLM)  deps: [string, LLamaWeights, ModelParams, ILogger]
+- 🟡 PromptCacheSessionManager : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, ILogger]
 - 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource]
 - 🟡 RewindRequest  (ECAssistantLLM)
 - 🟡 RewindResponse  (ECAssistantLLM)
+- 🟡 RouteMethodTests  (ECAssistantLLM)
+- 🟡 RoutingTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 SecurityHarness : IDisposable  (ECAssistantLLM)
+- 🟡 ServerCollection : TestServerFixture>  (ECAssistantLLM)
+- 🟡 ServerLogTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ServerLogger : ILogger  (ECAssistantLLM)  deps: [LogLevel minLevel =, string? logFile =]
 - 🟡 ServerSection  (ECAssistantLLM)
 - 🟡 SessionContext : IDisposable  (ECAssistantLLM)  deps: [string, string, string, LLamaWeights, ModelParams, InferenceParams, ILogger]
-- 🟡 SessionRegistry : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger]
+- 🟡 SessionLifecycleTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 SessionRegistry : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger, MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger, VramBudget]
 - 🟣 SessionStatusInfo  (ECAssistantLLM)  deps: [string, string, string, bool, int, uint, double, DateTime, DateTime]
+- 🟡 ShutdownTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SseStreamer  (ECAssistantLLM)
 - 🟡 SuccessResponse  (ECAssistantLLM)
+- 🟡 TestServerFixture : IAsyncLifetime  (ECAssistantLLM)
 - 🟡 TokenizeRequest  (ECAssistantLLM)
 - 🟡 TokenizeResponse  (ECAssistantLLM)
+- 🟡 TokenizeTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
+
+## Tests (23 types, ~2056 LOC)
+
+- 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ClientAuthTests  (Tests)
+- 🟡 ClientManagementTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ConcurrentRequestTests  (Tests)  deps: [TestServerFixture]
+- 🟡 EmbeddingsTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ErrorHandlingTests  (Tests)  deps: [TestServerFixture]
+- 🟡 HealthTests  (Tests)  deps: [TestServerFixture]
+- 🟡 HeartbeatTests  (Tests)  deps: [TestServerFixture]
+- 🟡 KvCacheTests  (Tests)  deps: [TestServerFixture]
+- 🟡 MalformedRequestTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ModelLoadTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ModelPathRestrictionTests : IDisposable  (Tests)
+- 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
+- 🟡 PrefixMathTests  (Tests)
+- 🟡 RouteMethodTests  (Tests)
+- 🟡 RoutingTests  (Tests)  deps: [TestServerFixture]
+- 🟡 SecurityHarness : IDisposable  (Tests)
+- 🟡 ServerCollection : TestServerFixture>  (Tests)
+- 🟡 ServerLogTests  (Tests)  deps: [TestServerFixture]
+- 🟡 SessionLifecycleTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]
+- 🟡 TestServerFixture : IAsyncLifetime  (Tests)
+- 🟡 TokenizeTests  (Tests)  deps: [TestServerFixture]
