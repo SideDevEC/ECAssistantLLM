@@ -10,6 +10,7 @@ namespace ECAssistant.LLM.Engine;
 public sealed class MultiModelHost : IDisposable
 {
     private readonly Dictionary<string, ModelSlot> _slots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _slotsLock = new();
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
     private bool _disposed;
@@ -93,24 +94,27 @@ public sealed class MultiModelHost : IDisposable
     /// </summary>
     public bool TryLoadModel(ModelConfig modelConfig)
     {
-        if (_slots.ContainsKey(modelConfig.Id))
+        lock (_slotsLock)
         {
-            _logger.Warn("MultiModelHost", $"Model '{modelConfig.Id}' already exists");
-            return false;
-        }
+            if (_slots.ContainsKey(modelConfig.Id))
+            {
+                _logger.Warn("MultiModelHost", $"Model '{modelConfig.Id}' already exists");
+                return false;
+            }
 
-        try
-        {
-            var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger);
-            slot.Load();
-            _slots[modelConfig.Id] = slot;
-            _logger.Info("MultiModelHost", $"Loaded new model '{modelConfig.Id}' at runtime");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("MultiModelHost", $"Failed to load model '{modelConfig.Id}': {ex.Message}");
-            return false;
+            try
+            {
+                var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger);
+                slot.Load();
+                _slots.Add(modelConfig.Id, slot);
+                _logger.Info("MultiModelHost", $"Loaded new model '{modelConfig.Id}' at runtime");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("MultiModelHost", $"Failed to load model '{modelConfig.Id}': {ex.Message}");
+                return false;
+            }
         }
     }
 
@@ -119,10 +123,13 @@ public sealed class MultiModelHost : IDisposable
     /// </summary>
     public bool TryUnloadModel(string modelId)
     {
-        if (!_slots.TryGetValue(modelId, out var slot))
-            return false;
+        lock (_slotsLock)
+        {
+            if (!_slots.TryGetValue(modelId, out var slot))
+                return false;
 
-        slot.Unload();
+            slot.Unload();
+        }
         _logger.Info("MultiModelHost", $"Unloaded model '{modelId}' at runtime");
         return true;
     }
@@ -132,7 +139,9 @@ public sealed class MultiModelHost : IDisposable
     /// </summary>
     public IReadOnlyList<ModelInfo> GetModelInfoList()
     {
-        return _slots.Values.Select(s => new ModelInfo(
+        List<ModelSlot> snapshot;
+        lock (_slotsLock) snapshot = _slots.Values.ToList();
+        return snapshot.Select(s => new ModelInfo(
             s.Id,
             s.Config.Path,
             s.IsLoaded,

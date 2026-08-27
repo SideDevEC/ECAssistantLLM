@@ -30,23 +30,27 @@ public sealed class InferenceScheduler : IInferenceScheduler
         _logger.Debug("Scheduler", $"Inference queue depth: {_queueDepth}");
 
         await _gate.WaitAsync(ct);
-        Interlocked.Decrement(ref _queueDepth);
 
-        return new InferenceReleaser(_gate);
+        // Keep counting this request as "in queue" until it finishes executing —
+        // QueueDepth is documented as waiting + executing.
+        return new InferenceReleaser(_gate, () => Interlocked.Decrement(ref _queueDepth));
     }
 
     private sealed class InferenceReleaser : IAsyncDisposable
     {
         private readonly SemaphoreSlim _gate;
+        private readonly Action _onRelease;
 
-        public InferenceReleaser(SemaphoreSlim gate)
+        public InferenceReleaser(SemaphoreSlim gate, Action onRelease)
         {
             _gate = gate;
+            _onRelease = onRelease;
         }
 
         public ValueTask DisposeAsync()
         {
             _gate.Release();
+            _onRelease();
             return ValueTask.CompletedTask;
         }
     }

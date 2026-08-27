@@ -38,6 +38,8 @@ public sealed class SessionContext : IDisposable
 
     /// <summary>LLamaContext (owns the KV cache). null after reset, recreated on demand.</summary>
     private LLamaContext? _context;
+    // Serializes KV-cache mutations (Reset) against streaming reads (Prefill/Infer).
+    private readonly SemaphoreSlim _ioLock = new(1, 1);
 
     /// <summary>Interactive executor with its own KV cache.</summary>
     public InteractiveExecutor? Executor { get; private set; }
@@ -106,6 +108,10 @@ public sealed class SessionContext : IDisposable
         var startMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
         var sb = new StringBuilder();
 
+        // Block a concurrent Reset() for the duration of the prefill
+        await _ioLock.WaitAsync(ct);
+        try
+        {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(120));
 
@@ -135,6 +141,11 @@ public sealed class SessionContext : IDisposable
 
         _logger.Info("SessionContext", $"[{Key}] Prefilled {ApproxTokenCount} tokens in {elapsedMs}ms");
         return (true, ApproxTokenCount, elapsedMs);
+        }
+        finally
+        {
+            _ioLock.Release();
+        }
     }
 
     /// <summary>
@@ -188,18 +199,28 @@ public sealed class SessionContext : IDisposable
     /// </summary>
     public void Reset()
     {
-        // InteractiveExecutor doesn't implement IDisposable — just drop the reference
-        Executor = null;
-        _context?.Dispose();
+        _ioLock.Wait();
+        try
+        {
+            var nullLog = Microsoft.Extensions.Logging.Abstractions.NullLogger<LLamaContext>.Instance;
 
-        var nullLog = Microsoft.Extensions.Logging.Abstractions.NullLogger<LLamaContext>.Instance;
-        _context = _weights.CreateContext(_modelParams);
-        Executor = new InteractiveExecutor(_context, nullLog);
+            // Build the replacement first, then swap — inference blocked on _ioLock
+            // never observes a null executor or a disposed context.
+            var newContext = _weights.CreateContext(_modelParams);
+            var oldContext = _context;
+            _context = newContext;
+            Executor = new InteractiveExecutor(newContext, nullLog);
+            oldContext?.Dispose();
 
-        _savedState = null;
-        IsPrefilled = false;
-        ApproxTokenCount = 0;
-        _logger.Info("SessionContext", $"[{Key}] KV cache reset");
+            _savedState = null;
+            IsPrefilled = false;
+            ApproxTokenCount = 0;
+            _logger.Info("SessionContext", $"[{Key}] KV cache reset");
+        }
+        finally
+        {
+            _ioLock.Release();
+        }
     }
 
     /// <summary>
@@ -215,10 +236,19 @@ public sealed class SessionContext : IDisposable
         LastActivity = DateTime.UtcNow;
 
         var sb = new StringBuilder();
-        await foreach (var token in Executor.InferAsync(prompt, inferenceParams ?? _inferenceParams, ct))
+        await _ioLock.WaitAsync(ct);
+        try
         {
-            sb.Append(token);
-            yield return token;
+            var executor = Executor; // stable reference for the whole stream
+            await foreach (var token in executor.InferAsync(prompt, inferenceParams ?? _inferenceParams, ct))
+            {
+                sb.Append(token);
+                yield return token;
+            }
+        }
+        finally
+        {
+            _ioLock.Release();
         }
 
         ApproxTokenCount += EstimateTokenCount(sb.ToString());
