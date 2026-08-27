@@ -18,13 +18,20 @@ public sealed class SessionRegistry : IDisposable
     private readonly IInferenceScheduler _scheduler;
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
+    private readonly VramBudget _vram;
 
     public SessionRegistry(MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger)
+        : this(modelHost, scheduler, config, logger, vram: null)
+    {
+    }
+
+    public SessionRegistry(MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger, VramBudget? vram)
     {
         _modelHost = modelHost ?? throw new ArgumentNullException(nameof(modelHost));
         _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _vram = vram ?? throw new ArgumentNullException(nameof(vram));
     }
 
     /// <summary>Number of active sessions.</summary>
@@ -53,7 +60,21 @@ public sealed class SessionRegistry : IDisposable
             clientId, sessionId, slot.Id,
             slot.Weights!, slot.Params, inferenceParams, _logger);
 
-        _sessions[key] = context;
+        // Atomic add — prevents two concurrent creates from silently overwriting (leaking KV cache)
+        if (!_sessions.TryAdd(key, context))
+        {
+            context.Dispose();
+            throw new InvalidOperationException($"Session already exists: {key}");
+        }
+
+        // Reserve VRAM here so every destroy/release path stays symmetric
+        if (!_vram.TryReserve(context.EstimatedVramMb))
+        {
+            _sessions.TryRemove(key, out _);
+            context.Dispose();
+            throw new InvalidOperationException($"VRAM budget exceeded (would need {context.EstimatedVramMb:F0} MB, {_vram.CurrentUsageMb:F0} MB in use of {_vram.MaxMb} MB budget)");
+        }
+
         _logger.Info("SessionRegistry", $"Created session '{key}' on model '{slot.Id}'");
         return context;
     }
@@ -76,6 +97,7 @@ public sealed class SessionRegistry : IDisposable
         if (!_sessions.TryRemove(key, out var context))
             return false;
 
+        _vram.Release(context.EstimatedVramMb);
         context.Dispose();
         _logger.Info("SessionRegistry", $"Destroyed session '{key}'");
         return true;
@@ -90,7 +112,10 @@ public sealed class SessionRegistry : IDisposable
         foreach (var key in keys)
         {
             if (_sessions.TryRemove(key, out var context))
+            {
+                _vram.Release(context.EstimatedVramMb);
                 context.Dispose();
+            }
         }
         _logger.Info("SessionRegistry", $"Destroyed {keys.Count} session(s) for client '{clientId}'");
         return keys.Count;

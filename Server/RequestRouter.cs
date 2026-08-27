@@ -335,7 +335,7 @@ public sealed class RequestRouter : IRequestRouter
 
         try
         {
-            var embeddings = slot.Embedder.GetEmbeddings(req.Input).Result;
+            var embeddings = await slot.Embedder.GetEmbeddings(req.Input);
             var response = new EmbeddingResponse
             {
                 Model = slot.Id,
@@ -488,15 +488,8 @@ public sealed class RequestRouter : IRequestRouter
 
         try
         {
+            // VramBudget reservation + release happen inside SessionRegistry (symmetric accounting)
             var session = _sessions.CreateSession(clientId, req.SessionId, req.ModelId);
-
-            if (!_vram.TryReserve(session.EstimatedVramMb))
-            {
-                _sessions.DestroySession(clientId, req.SessionId);
-                await SseStreamer.WriteJsonAsync(ctx.Response,
-                    new ErrorResponse { Error = new() { Message = "VRAM budget exceeded", Type = "vram_exceeded" } }, 503);
-                return;
-            }
 
             await SseStreamer.WriteJsonAsync(ctx.Response, new
             {
@@ -650,10 +643,6 @@ public sealed class RequestRouter : IRequestRouter
                 new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
             return;
         }
-
-        var session = _sessions.GetSession(clientId, sessionId);
-        if (session != null)
-            _vram.Release(session.EstimatedVramMb);
 
         var ok = _sessions.DestroySession(clientId, sessionId);
         await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Ok = ok, Message = ok ? "Destroyed" : "Not found" });

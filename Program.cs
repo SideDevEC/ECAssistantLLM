@@ -119,7 +119,7 @@ catch (Exception ex)
     return 1;
 }
 
-var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger);
+var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger, vramBudget);
 
 // ── Shutdown coordination ──
 var cts = new CancellationTokenSource();
