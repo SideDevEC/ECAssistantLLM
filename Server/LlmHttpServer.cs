@@ -58,23 +58,27 @@ public sealed class LlmHttpServer : IDisposable
     /// </summary>
     public async Task RunAsync(CancellationToken ct)
     {
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        // Link the per-run token with the constructor-provided _cts — do NOT overwrite it,
+        // RequestRouter holds a reference to _cts for shutdown handling.
+        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
         _listener.Start();
 
         _logger.Info("Server", $"ECAssistantLLM listening on {_config.Server.Prefix}");
         _logger.Info("Server", $"Models: {string.Join(", ", _modelHost.LoadedModelIds)}");
         _logger.Info("Server", $"Max sessions: {_config.Server.MaxSessions}");
 
-        while (!_cts.Token.IsCancellationRequested)
+        while (!runCts.Token.IsCancellationRequested)
         {
             HttpListenerContext ctx;
             try
             {
                 ctx = await _listener.GetContextAsync();
             }
-            catch (HttpListenerException)
+            catch (Exception ex) when (ex is HttpListenerException
+                                    or ObjectDisposedException
+                                    or OperationCanceledException)
             {
-                break; // listener stopped
+                break; // listener stopped or disposed
             }
 
             // Handle each request on a background task

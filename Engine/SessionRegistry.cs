@@ -21,7 +21,7 @@ public sealed class SessionRegistry : IDisposable
     private readonly VramBudget _vram;
 
     public SessionRegistry(MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger)
-        : this(modelHost, scheduler, config, logger, vram: null)
+        : this(modelHost, scheduler, config, logger, new VramBudget(config))
     {
     }
 
