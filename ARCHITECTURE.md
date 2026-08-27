@@ -285,3 +285,7 @@ Section semantics:
   `copy_cell` passes a byte count to `ggml_view_1d` (expects elements) during recurrent-state
   checkpoint/restore (PR #20700, closed unmerged; see issues #21681/#22384). Revisit when the
   fix lands upstream; until then stateless calls use `StatelessExecutor` cold path.
+
+## Changelog — 2026-08-27 (Vision Fix)
+
+- **Engine/**: `MtmdMarkerResolver` — reflection access to LLamaSharp's protected `GetMtmdMarker()` (0.27); used in `SessionContext` + `RequestRouter` (StatelessVisionInferAsync) to substitute the projector's real media marker. Vision E2E verified (Qwen2.5-VL + mmproj on :58777).

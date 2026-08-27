@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 80  |  LOC: 4949  |  ~3288 tokens
+Types: 81  |  LOC: 4967  |  ~3325 tokens
 
 ---
 
@@ -219,6 +219,10 @@ Cross-package deps: LLama, LLama.Common, LLama.Native, ECAssistant.LLM.Config
 Constructor:
   - ModelsTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: MtmdMarkerResolver
+> Retrieves the projector-specific media marker token used by LLamaSharp's MTMD tokenizer.
+Cross-package deps: LLama
 
 ### Class: MultiModelHost
 > Manages multiple loaded models (at least 2: main + embeddings).

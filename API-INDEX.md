@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-27T14:21:13.995217+00:00
-Packages: 2  |  Types: 104
+Generated: 2026-08-27T18:01:30.123311+00:00
+Packages: 2  |  Types: 105
 
 ---
 
-## ECAssistantLLM (80 types, ~4949 LOC)
+## ECAssistantLLM (81 types, ~4967 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -57,6 +57,7 @@ Packages: 2  |  Types: 104
 - 🟡 ModelPathRestrictionTests : IDisposable  (ECAssistantLLM)
 - 🟡 ModelSlot : IDisposable  (ECAssistantLLM)  deps: [string, ModelConfig, ILogger]
 - 🟡 ModelsTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 MtmdMarkerResolver  (ECAssistantLLM)
 - 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger]
 - 🟡 PrefillRequest  (ECAssistantLLM)
 - 🟡 PrefillResponse  (ECAssistantLLM)
