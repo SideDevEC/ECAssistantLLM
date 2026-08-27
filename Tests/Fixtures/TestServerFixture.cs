@@ -83,8 +83,32 @@ public sealed class TestServerFixture : IAsyncLifetime
              // ── Start the listener on a background task ──────────────────────
              _serverTask = Task.Run(() => _server.RunAsync(_cts.Token));
 
-             // ── Give the listener a moment to bind ───────────────────────────
-          await Task.Delay(300);
+             // ── Wait until /eca/health actually answers (max 90 s), not a blind delay ──
+          var deadline = DateTime.UtcNow.AddSeconds(90);
+          HttpResponseMessage? health = null;
+          using (var probeClient = new HttpClient { BaseAddress = new Uri(BaseUrl), Timeout = TimeSpan.FromSeconds(2) })
+          {
+              while (DateTime.UtcNow < deadline)
+              {
+                  if (_serverTask.IsCompleted)
+                  {
+                      var ex = _serverTask.Exception?.GetBaseException()
+                               ?? new Exception("server task completed without running");
+                      throw new InvalidOperationException($"ECAssistantLLM test server failed to start on {BaseUrl}", ex);
+                  }
+                  try
+                  {
+                      health = await probeClient.GetAsync("/eca/health");
+                      if (health.IsSuccessStatusCode) break;
+                      health.Dispose(); health = null;
+                  }
+                  catch { /* not bound yet */ }
+                  await Task.Delay(250);
+              }
+          }
+          if (health == null || !health.IsSuccessStatusCode)
+              throw new TimeoutException($"ECAssistantLLM test server did not become healthy within 90s on {BaseUrl}");
+          health.Dispose();
           IsRunning = true;
 
              // ── Pre-configured client ────────────────────────────────────────
