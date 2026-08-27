@@ -37,6 +37,14 @@ public sealed class ServerSection
     public int HeartbeatIntervalSec { get; set; } = 30;
 
     /// <summary>
+    /// Restrictive root directory for runtime model loads via /eca/models/load.
+    /// When set, only model paths under this directory are accepted.
+    /// null = no restriction (only appropriate for fully trusted localhost setups).
+    /// </summary>
+    [JsonPropertyName("models_root")]
+    public string? ModelsRoot { get; set; }
+
+    /// <summary>
     /// Base URL for HttpListener prefix. e.g. http://localhost:8420/
     /// </summary>
     [JsonIgnore]

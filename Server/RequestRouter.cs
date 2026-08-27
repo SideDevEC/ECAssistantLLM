@@ -51,7 +51,19 @@ public sealed class RequestRouter : IRequestRouter
 
         _logger.Debug("Router", $"{method} {path}");
 
-        var clientId = req.Headers["X-Client-Id"] ?? "default";
+        var clientId = req.Headers["X-Client-Id"];
+
+        // /eca/* management endpoints require a registered client identity.
+        // Registration (/eca/clients POST) is the only bootstrap exception.
+        bool isEcaManagement = path.StartsWith("/eca/")
+                               && path != "/eca/health"
+                               && !(path == "/eca/clients" && method == "POST");
+        if (isEcaManagement && (string.IsNullOrEmpty(clientId) || !_clients.IsValid(clientId)))
+        {
+            await SseStreamer.WriteJsonAsync(res,
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
+            return;
+        }
 
         // ── OpenAI-compatible endpoints ──
         if (path == "/v1/chat/completions" && method == "POST")
@@ -144,7 +156,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -234,7 +246,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -251,7 +263,6 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         var prompt = req.Prompt;
-        // Echo: if true, the prompt text is prepended to the response (handled below)
 
         var inferenceParams = CreateInferenceParams(req);
 
@@ -275,8 +286,6 @@ public sealed class RequestRouter : IRequestRouter
         else
         {
             var sb = new StringBuilder();
-            if (req.Echo)
-                sb.Append(prompt);
 
             if (session != null)
             {
@@ -474,7 +483,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -512,7 +521,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -546,7 +555,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -567,7 +576,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -588,7 +597,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -609,7 +618,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -640,7 +649,7 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrEmpty(clientId))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing X-Client-Id header", Type = "invalid_request" } }, 400);
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
             return;
         }
 
@@ -661,6 +670,14 @@ public sealed class RequestRouter : IRequestRouter
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "id and path required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        if (!IsAllowedModelPath(req.Path))
+        {
+            _logger.Warn("Router", $"Blocked model load outside models_root: {req.Path}");
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Model path is outside the configured models_root", Type = "forbidden" } }, 403);
             return;
         }
 
@@ -720,7 +737,24 @@ public sealed class RequestRouter : IRequestRouter
         });
     }
 
-    // ── Helpers ──────────────────────────────────────────
+    // ── Helpers ──────────────────────────────────────
+
+    /// <summary>
+    /// True when modelPath resolves inside the configured models_root.
+    /// Always true when no models_root is configured (trusted localhost setups).
+    /// Uses Path.GetFullPath comparison — immune to ../ traversal tricks.
+    /// </summary>
+    private bool IsAllowedModelPath(string modelPath)
+    {
+        var root = _config.Server.ModelsRoot;
+        if (string.IsNullOrWhiteSpace(root)) return true;
+
+        var fullModel = Path.GetFullPath(modelPath);
+        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return fullModel.StartsWith(fullRoot + Path.DirectorySeparatorChar)
+            || fullModel.StartsWith(fullRoot + Path.AltDirectorySeparatorChar);
+    }
 
     private static string ExtractSessionIdFromPath(string path, string suffix)
     {
