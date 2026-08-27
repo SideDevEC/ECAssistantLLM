@@ -127,10 +127,14 @@ public sealed class LlmHttpServer : IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        // Stop the listener FIRST so a pending GetContextAsync unblocks with an
+        // exception (caught in RunAsync). Cancelling/disposing the CTS before
+        // stopping left the accept-loop thread blocked forever → xunit could
+        // never finish disposing collection fixtures ("Test Run Aborted").
+        try { _listener.Stop(); } catch { }
         _cts?.Cancel();
         _cts?.Dispose();
 
-        try { _listener.Stop(); } catch { }
         _clientManager?.Dispose();
         _sessionRegistry?.Dispose();
         _modelHost?.Dispose();
