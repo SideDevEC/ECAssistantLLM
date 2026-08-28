@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-27T21:07:04.852839+00:00
-Packages: 2  |  Types: 105
+Generated: 2026-08-28T07:47:33.393187+00:00
+Packages: 2  |  Types: 109
 
 ---
 
-## ECAssistantLLM (81 types, ~4967 LOC)
+## ECAssistantLLM (83 types, ~5179 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -87,9 +87,11 @@ Packages: 2  |  Types: 105
 - 🟡 TokenizeResponse  (ECAssistantLLM)
 - 🟡 TokenizeTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟣 VisionImage  (ECAssistantLLM)  deps: [string, byte]
+- 🟡 VisionImageSuiteE2ETests : IAsyncLifetime  (ECAssistantLLM)
+- 🟡 VisionInferenceE2ETests  (ECAssistantLLM)
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 
-## Tests (24 types, ~2125 LOC)
+## Tests (26 types, ~2327 LOC)
 
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ChatMessageContentConverterTests  (Tests)
@@ -115,3 +117,5 @@ Packages: 2  |  Types: 105
 - 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]
 - 🟡 TestServerFixture : IAsyncLifetime  (Tests)
 - 🟡 TokenizeTests  (Tests)  deps: [TestServerFixture]
+- 🟡 VisionImageSuiteE2ETests : IAsyncLifetime  (Tests)
+- 🟡 VisionInferenceE2ETests  (Tests)

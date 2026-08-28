@@ -23,11 +23,11 @@ public class VisionInferenceE2ETests
     private const string TestImageBase64 =
         "iVBORw0KGgoAAAANSUhEUgAAAUAAAADICAIAAAAWZq/8AAACW0lEQVR4nOzVAQnAMADEwN+of8utjsCdh5BzB1T9A7IEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAj7tjugyYEhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoawBwAA//829+EwAAAABklEQVQDAAtJA5DFCpqnAAAAAElFTkSuQmCC"; // 320x200 PNG: top half red, bottom half blue
 
-    private static string DefaultModel =>
+    private string DefaultModel =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "ECAssistant", "llm", "models", "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf");
 
-    private static string DefaultMmproj =>
+    private string DefaultMmproj =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "ECAssistant", "llm", "models", "mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf");
 

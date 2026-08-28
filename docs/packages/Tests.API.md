@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 24  |  LOC: 2125  |  ~1176 tokens
+Types: 26  |  LOC: 2327  |  ~1272 tokens
 
 ---
 
@@ -135,3 +135,12 @@ Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Eng
 Constructor:
   - TokenizeTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: VisionImageSuiteE2ETests
+> FULL-SYSTEM vision image suite (Category=E2E): runs against an EXTERNALLY
+Implements: IAsyncLifetime
+Cross-package deps: Xunit
+
+### Class: VisionInferenceE2ETests
+> FULL-SYSTEM vision E2E (Category=E2E, excluded from unit runs):
+Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server, Xunit

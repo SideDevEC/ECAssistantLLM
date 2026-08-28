@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 81  |  LOC: 4967  |  ~3325 tokens
+Types: 83  |  LOC: 5179  |  ~3420 tokens
 
 ---
 
@@ -354,6 +354,15 @@ Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Eng
 Constructor:
   - TokenizeTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: VisionImageSuiteE2ETests
+> FULL-SYSTEM vision image suite (Category=E2E): runs against an EXTERNALLY
+Implements: IAsyncLifetime
+Cross-package deps: Xunit
+
+### Class: VisionInferenceE2ETests
+> FULL-SYSTEM vision E2E (Category=E2E, excluded from unit runs):
+Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server, Xunit
 
 ### Class: VramBudget
 > Tracks total VRAM usage across all sessions.

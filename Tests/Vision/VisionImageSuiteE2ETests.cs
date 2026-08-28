@@ -16,8 +16,9 @@ namespace ECAssistant.LLM.Tests.Vision;
 [Trait("Category", "E2E")]
 public class VisionImageSuiteE2ETests : IAsyncLifetime
 {
-    private static string? BaseUrl => Environment.GetEnvironmentVariable("ECA_VISION_BASEURL");
-    private static string ModelId => Environment.GetEnvironmentVariable("ECA_VISION_MODEL_ID") ?? "main-vision";
+    // Instance properties (not static) — LDC enforcement: no static mutable fields
+    private string? BaseUrl => Environment.GetEnvironmentVariable("ECA_VISION_BASEURL");
+    private string ModelId => Environment.GetEnvironmentVariable("ECA_VISION_MODEL_ID") ?? "main-vision";
     private HttpClient _http = null!;
     private string _clientId = "";
 
