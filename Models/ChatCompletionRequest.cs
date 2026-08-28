@@ -153,7 +153,12 @@ public sealed class ChatMessageContentConverter : JsonConverter<List<ChatMessage
                     var img = ParseDataUri(url);
                     if (img == null)
                         throw new JsonException("Only base64 data-URI image_url parts are supported by this server.");
+                    // Adjacent media markers confuse the MTMD tokenizer (multi-image desync) —
+                    // always frame each marker with newline text so chunks stay separated.
+                    if (text.Length > 0 && !text.ToString().EndsWith('\n'))
+                        text.Append('\n');
                     text.Append(DefaultImageMarker);
+                    text.Append('\n');
                     images.Add(img);
                 }
                 // unknown part types ignored for forward compatibility

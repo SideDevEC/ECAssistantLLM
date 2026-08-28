@@ -261,7 +261,14 @@ public sealed class SessionContext : IDisposable
 
             var executor = Executor; // stable reference for the whole stream
             // Substitute the projector's actual marker for the placeholder written by the converter
-            prompt = prompt.Replace(ECAssistant.LLM.Models.ChatMessageContentConverter.DefaultImageMarker, MtmdMarkerResolver.GetMarkerFor(executor));
+            var mtmdMarker = MtmdMarkerResolver.GetMarkerFor(executor);
+            prompt = prompt.Replace(ECAssistant.LLM.Models.ChatMessageContentConverter.DefaultImageMarker, mtmdMarker);
+            if (images is { Count: > 0 })
+            {
+                var markerCount = 0; var idx = 0;
+                while ((idx = prompt.IndexOf(mtmdMarker, idx, StringComparison.Ordinal)) >= 0) { markerCount++; idx += mtmdMarker.Length; }
+                _logger.Info("SessionContext", $"Vision: {images.Count} media queued, {markerCount} marker(s) in prompt (prompt len {prompt.Length})");
+            }
             await foreach (var token in executor.InferAsync(prompt, inferenceParams ?? _inferenceParams, ct))
             {
                 sb.Append(token);

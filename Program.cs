@@ -140,13 +140,13 @@ Console.CancelKeyPress += (_, e) =>
 {
     e.Cancel = true;
     logger.Info("Main", "Shutdown signal received (Ctrl+C)...");
-    cts.Cancel();
+    try { cts.Cancel(); } catch (ObjectDisposedException) { /* server already disposed during shutdown */ }
 };
 
 AppDomain.CurrentDomain.ProcessExit += (_, _) =>
 {
     logger.Info("Main", "Process exiting...");
-    cts.Cancel();
+    try { cts.Cancel(); } catch (ObjectDisposedException) { /* server already disposed during shutdown */ }
 };
 
 // ── Run ──
