@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 89  |  LOC: 5745  |  ~3623 tokens
+Types: 90  |  LOC: 5810  |  ~3666 tokens
 
 ---
 
@@ -364,6 +364,10 @@ Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Eng
 
 ### Class: ThinkFilter
 > Stream-safe filter that removes reasoning-model thinking blocks
+
+### Class: ThinkFilterTests
+> v12.8 regression: reasoning models (Qwen3.5) leak &lt;think&gt;…&lt;/think&gt; blocks and
+Cross-package deps: ECAssistant.LLM.Server, Xunit
 
 ### Class: TokenizeRequest
 

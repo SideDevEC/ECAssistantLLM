@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-29T17:32:05.062104+00:00
-Packages: 2  |  Types: 119
+Generated: 2026-08-29T20:58:20.599498+00:00
+Packages: 2  |  Types: 121
 
 ---
 
-## ECAssistantLLM (89 types, ~5745 LOC)
+## ECAssistantLLM (90 types, ~5810 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -88,6 +88,7 @@ Packages: 2  |  Types: 119
 - 🟡 SuccessResponse  (ECAssistantLLM)
 - 🟡 TestServerFixture : IAsyncLifetime  (ECAssistantLLM)
 - 🟡 ThinkFilter  (ECAssistantLLM)
+- 🟡 ThinkFilterTests  (ECAssistantLLM)
 - 🟡 TokenizeRequest  (ECAssistantLLM)
 - 🟡 TokenizeResponse  (ECAssistantLLM)
 - 🟡 TokenizeTests  (ECAssistantLLM)  deps: [TestServerFixture]
@@ -97,7 +98,7 @@ Packages: 2  |  Types: 119
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 
-## Tests (30 types, ~2787 LOC)
+## Tests (31 types, ~2853 LOC)
 
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ChatMessageContentConverterTests  (Tests)
@@ -125,6 +126,7 @@ Packages: 2  |  Types: 119
 - 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SseStreamerTests : IDisposable  (Tests)
 - 🟡 TestServerFixture : IAsyncLifetime  (Tests)
+- 🟡 ThinkFilterTests  (Tests)
 - 🟡 TokenizeTests  (Tests)  deps: [TestServerFixture]
 - 🟡 VisionImageSuiteE2ETests : IAsyncLifetime  (Tests)
 - 🟡 VisionInferenceE2ETests  (Tests)

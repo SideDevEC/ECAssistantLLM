@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 30  |  LOC: 2787  |  ~1434 tokens
+Types: 31  |  LOC: 2853  |  ~1477 tokens
 
 ---
 
@@ -143,6 +143,10 @@ Cross-package deps: ECAssistant.LLM.Server
 > Shared integration-test fixture. Starts the real ECAssistantLLM HTTP server
 Implements: IAsyncLifetime
 Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
+
+### Class: ThinkFilterTests
+> v12.8 regression: reasoning models (Qwen3.5) leak &lt;think&gt;…&lt;/think&gt; blocks and
+Cross-package deps: ECAssistant.LLM.Server, Xunit
 
 ### Class: TokenizeTests
 > Tests for the ECA tokenize endpoint (POST /eca/tokenize).
