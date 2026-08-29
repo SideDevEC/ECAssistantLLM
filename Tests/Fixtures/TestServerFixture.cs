@@ -70,7 +70,7 @@ public sealed class TestServerFixture : IAsyncLifetime
           var scheduler = new InferenceScheduler(logger);
           var vramBudget = new VramBudget(config);
 
-          modelHost.LoadAll();
+          await modelHost.LoadAllAsync();
 
           var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger);
              _cts = new CancellationTokenSource();
@@ -197,7 +197,16 @@ public sealed class TestServerFixture : IAsyncLifetime
 
          // ── Small HTTP helpers used across test categories ─────────────────────
 
-         /// <summary>POST a JSON body to <paramref name="path"/> (OpenAI-style, no client header).</summary>
+         private string? _openAiClientId;
+
+         /// <summary>
+         /// OpenAI-compatible endpoints now require a registered client ID.
+         /// Returns a lazily-registered, cached client id for /v1/* helper calls.
+         /// </summary>
+         private async Task<string> OpenAiClientIdAsync()
+              => _openAiClientId ??= await RegisterClientAsync("fixture-openai");
+
+         /// <summary>POST a JSON body to <paramref name="path"/> (/v1/* calls get a registered client header automatically).</summary>
       public async Task<HttpResponseMessage> PostJsonAsync(string path, object body)
          {
           var json = System.Text.Json.JsonSerializer.Serialize(body);
@@ -205,6 +214,8 @@ public sealed class TestServerFixture : IAsyncLifetime
                  {
                   Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
                  };
+          if (path.StartsWith("/v1/"))
+              req.Headers.TryAddWithoutValidation("X-Client-Id", await OpenAiClientIdAsync());
           return await Client.SendAsync(req);
          }
 
@@ -220,7 +231,7 @@ public sealed class TestServerFixture : IAsyncLifetime
           return await Client.SendAsync(req);
          }
 
-         /// <summary>POST a raw string body (used for malformed-JSON tests).</summary>
+         /// <summary>POST a raw string body (used for malformed-JSON tests). /v1/* calls get a registered client header automatically.</summary>
       public async Task<HttpResponseMessage> PostRawAsync(string path, string rawBody, string? clientId = null,
           string contentType = "application/json")
          {
@@ -230,15 +241,19 @@ public sealed class TestServerFixture : IAsyncLifetime
                  };
           if (clientId != null)
               req.Headers.TryAddWithoutValidation("X-Client-Id", clientId);
+          else if (path.StartsWith("/v1/"))
+              req.Headers.TryAddWithoutValidation("X-Client-Id", await OpenAiClientIdAsync());
           return await Client.SendAsync(req);
          }
 
-         /// <summary>GET a path with an optional X-Client-Id header.</summary>
+         /// <summary>GET a path with an optional X-Client-Id header. /v1/* calls get a registered client header automatically.</summary>
       public async Task<HttpResponseMessage> GetAsClientAsync(string path, string? clientId = null)
          {
           using var req = new HttpRequestMessage(HttpMethod.Get, path);
           if (clientId != null)
               req.Headers.TryAddWithoutValidation("X-Client-Id", clientId);
+          else if (path.StartsWith("/v1/"))
+              req.Headers.TryAddWithoutValidation("X-Client-Id", await OpenAiClientIdAsync());
           return await Client.SendAsync(req);
          }
 

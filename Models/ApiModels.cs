@@ -56,7 +56,7 @@ public sealed class ClientRegisterResponse
     public string ClientId { get; set; } = "";
 
     [JsonPropertyName("server_version")]
-    public string ServerVersion { get; set; } = "1.0.0";
+    public string ServerVersion { get; set; } = LlmServerInfo.Version;
 }
 
 /// <summary>

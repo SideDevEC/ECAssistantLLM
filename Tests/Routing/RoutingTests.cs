@@ -16,23 +16,27 @@ namespace ECAssistant.LLM.Tests.Routing;
     public RoutingTests(TestServerFixture fixture) => _fixture = fixture;
 
     [Fact]
-    public async Task OpenAi_Endpoint_Defaults_Client_To_Default_When_Header_Missing()
+    public async Task OpenAi_Endpoint_WithoutClientId_IsRejected_401()
         {
-          // A chat completion with no X-Client-Id header and no session_id
-         // must succeed, proving the router defaulted the client to "default".
-        var resp = await _fixture.PostJsonAsync("/v1/chat/completions",
-             new
-                {
-                 model = "main",
-                 stream = false,
-                 messages = new[] { new { role = "user", content = "Reply OK." } },
-                 max_tokens = 8
-                });
+          // Since client-ID enforcement was added to OpenAI endpoints, a chat completion
+          // with no X-Client-Id header must be rejected with 401 (same policy as /eca/*).
+          // Send raw (no fixture helper) — helpers auto-attach a registered client for /v1/*.
+        using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, "/v1/chat/completions")
+             {
+              Content = new System.Net.Http.StringContent(
+                   System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                         model = "main",
+                         stream = false,
+                         messages = new[] { new { role = "user", content = "Reply OK." } },
+                         max_tokens = 8
+                        }),
+                   System.Text.Encoding.UTF8,
+                   "application/json")
+             };
+        var resp = await _fixture.Client.SendAsync(req);
 
-        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(body);
-        Assert.Equal("chat.completion", doc.RootElement.GetProperty("object").GetString());
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, resp.StatusCode);
         }
 
     [Fact]

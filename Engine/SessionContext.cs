@@ -274,14 +274,16 @@ public sealed class SessionContext : IDisposable
                 sb.Append(token);
                 yield return token;
             }
+
+            // Token accounting must be consistent with the same critical section that
+            // guards Reset()/Prefill — otherwise a concurrent reset could wipe or race it.
+            ApproxTokenCount += EstimateTokenCount(sb.ToString());
         }
         finally
         {
             try { _mtmd?.ClearMedia(); } catch { }
             _ioLock.Release();
         }
-
-        ApproxTokenCount += EstimateTokenCount(sb.ToString());
     }
 
     /// <summary>

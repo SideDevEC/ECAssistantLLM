@@ -22,6 +22,7 @@
   <ItemGroup>
     <!-- Keep the in-repo test project out of the main server build. -->
     <Compile Remove="Tests\**" />
+    <InternalsVisibleTo Include="ECAssistant.LLM.Tests" />
 
     <None Update="llm-server.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

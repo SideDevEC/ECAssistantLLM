@@ -42,14 +42,19 @@ public sealed class MultiModelHost : IDisposable
 
     /// <summary>
     /// Load all configured models into memory.
+    /// Slots are loaded outside the lock (slow disk/GPU work); dictionary
+    /// mutations happen under _slotsLock, consistent with TryLoadModelAsync.
     /// </summary>
-    public void LoadAll()
+    public async Task LoadAllAsync()
     {
         foreach (var modelConfig in _config.Models)
         {
             var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger);
-            slot.Load();
-            _slots[modelConfig.Id] = slot;
+            await slot.LoadAsync();
+            lock (_slotsLock)
+            {
+                _slots[modelConfig.Id] = slot;
+            }
         }
 
         _logger.Info("MultiModelHost", $"Loaded {LoadedCount} model(s): {string.Join(", ", LoadedModelIds)}");
@@ -91,8 +96,10 @@ public sealed class MultiModelHost : IDisposable
 
     /// <summary>
     /// Load a new model at runtime.
+    /// Slow load work happens outside the lock; only the existence check and
+    /// dictionary insert are serialized on _slotsLock.
     /// </summary>
-    public bool TryLoadModel(ModelConfig modelConfig)
+    public async Task<bool> TryLoadModelAsync(ModelConfig modelConfig)
     {
         lock (_slotsLock)
         {
@@ -101,21 +108,33 @@ public sealed class MultiModelHost : IDisposable
                 _logger.Warn("MultiModelHost", $"Model '{modelConfig.Id}' already exists");
                 return false;
             }
+        }
 
-            try
+        var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger);
+        try
+        {
+            await slot.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("MultiModelHost", $"Failed to load model '{modelConfig.Id}': {ex.Message}");
+            return false;
+        }
+
+        lock (_slotsLock)
+        {
+            // Re-check: a concurrent load may have inserted the same ID while we loaded.
+            if (_slots.ContainsKey(modelConfig.Id))
             {
-                var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger);
-                slot.Load();
-                _slots.Add(modelConfig.Id, slot);
-                _logger.Info("MultiModelHost", $"Loaded new model '{modelConfig.Id}' at runtime");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.Error("MultiModelHost", $"Failed to load model '{modelConfig.Id}': {ex.Message}");
+                _logger.Warn("MultiModelHost", $"Model '{modelConfig.Id}' already exists");
+                slot.Dispose();
                 return false;
             }
+            _slots.Add(modelConfig.Id, slot);
         }
+
+        _logger.Info("MultiModelHost", $"Loaded new model '{modelConfig.Id}' at runtime");
+        return true;
     }
 
     /// <summary>

@@ -76,6 +76,18 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
+        // OpenAI-compatible inference endpoints require a registered client identity too —
+        // same policy as /eca/* management endpoints.
+        bool isOpenAiEndpoint = (path == "/v1/chat/completions" && method == "POST")
+                             || (path == "/v1/completions" && method == "POST")
+                             || (path == "/v1/embeddings" && method == "POST")
+                             || (path == "/v1/models" && method == "GET");
+        if (isOpenAiEndpoint && (string.IsNullOrEmpty(clientId) || !_clients.IsValid(clientId)))
+        {
+            await WriteInvalidClientAsync(res);
+            return;
+        }
+
         // ── OpenAI-compatible endpoints ──
         if (path == "/v1/chat/completions" && method == "POST")
         { await HandleChatCompletionAsync(ctx, clientId, ct); return; }
@@ -154,31 +166,15 @@ public sealed class RequestRouter : IRequestRouter
 
     // ── OpenAI handlers ──────────────────────────────────
 
-    private async Task HandleChatCompletionAsync(HttpListenerContext ctx, string? clientId, CancellationToken ct)
+    private async Task HandleChatCompletionAsync(HttpListenerContext ctx, string clientId, CancellationToken ct)
     {
-        var req = await SseStreamer.ReadJsonAsync<ChatCompletionRequest>(ctx.Request, ct);
-        if (req == null)
-        {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Invalid request body", Type = "invalid_request" } }, 400);
-            return;
-        }
+        var (req, ok) = await ReadBodyOrErrorAsync<ChatCompletionRequest>(ctx, ct);
+        if (!ok) return;
 
-        if (string.IsNullOrEmpty(clientId))
-        {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
-            return;
-        }
-
-        var session = req.SessionId != null
-            ? _sessions.GetSession(clientId, req.SessionId)
-            : null;
-
+        var session = ResolveSession(clientId, req.SessionId);
         if (session == null && req.SessionId != null)
         {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Session not found: {req.SessionId}", Type = "session_not_found" } }, 404);
+            await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
             return;
         }
 
@@ -187,13 +183,16 @@ public sealed class RequestRouter : IRequestRouter
 
         // Vision: collect image payloads from all messages (markers are already in Content).
         var images = req.Messages.Where(m => m.HasImages).SelectMany(m => m.Images).Select(i => i.Data).ToList();
-        var modelSlotForVision = images.Count > 0 ? (_models.TryGetSlot(req.Model) ?? _models.GetMainSlot()) : null;
 
-        if (images.Count > 0 && (modelSlotForVision == null || !modelSlotForVision.SupportsVision))
+        if (images.Count > 0)
         {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Model does not support vision — configure mmproj_path for this model.", Type = "invalid_request" } }, 400);
-            return;
+            var modelSlotForVision = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
+            if (!modelSlotForVision.SupportsVision)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "Model does not support vision — configure mmproj_path for this model.", Type = "invalid_request" } }, 400);
+                return;
+            }
         }
 
         await using var slot = await _scheduler.AcquireAsync(ct);
@@ -208,12 +207,7 @@ public sealed class RequestRouter : IRequestRouter
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = images.Count > 0
-                    ? StatelessVisionInferAsync(modelSlot, prompt, inferenceParams, images, ct)
-                    // Vision requests bypass the warm prompt cache — MTMD media queue is global per projector.
-                    : EnableWarmPromptCache
-                        ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
-                        : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
+                tokenStream = CreateStatelessStream(modelSlot, prompt, inferenceParams, images, ct);
             }
 
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -229,12 +223,7 @@ public sealed class RequestRouter : IRequestRouter
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                var stream = images.Count > 0
-                    ? StatelessVisionInferAsync(modelSlot, prompt, inferenceParams, images, ct)
-                    : EnableWarmPromptCache
-                        ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
-                        : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
-                await foreach (var token in stream)
+                await foreach (var token in CreateStatelessStream(modelSlot, prompt, inferenceParams, images, ct))
                     sb.Append(token);
             }
 
@@ -258,15 +247,10 @@ public sealed class RequestRouter : IRequestRouter
         }
     }
 
-    private async Task HandleCompletionAsync(HttpListenerContext ctx, string? clientId, CancellationToken ct)
+    private async Task HandleCompletionAsync(HttpListenerContext ctx, string clientId, CancellationToken ct)
     {
-        var req = await SseStreamer.ReadJsonAsync<CompletionRequest>(ctx.Request, ct);
-        if (req == null)
-        {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Invalid request body", Type = "invalid_request" } }, 400);
-            return;
-        }
+        var (req, ok) = await ReadBodyOrErrorAsync<CompletionRequest>(ctx, ct);
+        if (!ok) return;
 
         if (string.IsNullOrEmpty(req.Prompt))
         {
@@ -275,22 +259,10 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        if (string.IsNullOrEmpty(clientId))
-        {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
-            return;
-        }
-
-        // Optional session-based inference (KV cache)
-        var session = req.SessionId != null
-            ? _sessions.GetSession(clientId, req.SessionId)
-            : null;
-
+        var session = ResolveSession(clientId, req.SessionId);
         if (session == null && req.SessionId != null)
         {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Session not found: {req.SessionId}", Type = "session_not_found" } }, 404);
+            await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
             return;
         }
 
@@ -310,9 +282,7 @@ public sealed class RequestRouter : IRequestRouter
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = EnableWarmPromptCache
-                    ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
-                    : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct);
+                tokenStream = CreateStatelessStream(modelSlot, prompt, inferenceParams, images: null, ct);
             }
 
             await SseStreamer.StreamCompletionAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -329,9 +299,7 @@ public sealed class RequestRouter : IRequestRouter
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                await foreach (var token in (EnableWarmPromptCache
-                    ? _promptCache.InferAsync(modelSlot, prompt, inferenceParams, ct)
-                    : StatelessInferAsync(modelSlot, prompt, inferenceParams, ct)))
+                await foreach (var token in CreateStatelessStream(modelSlot, prompt, inferenceParams, images: null, ct))
                     sb.Append(token);
             }
 
@@ -425,7 +393,7 @@ public sealed class RequestRouter : IRequestRouter
         var response = new
         {
             status = "ok",
-            version = "1.0.0",
+            version = LlmServerInfo.Version,
             models_loaded = _models.LoadedModelIds,
             sessions = _sessions.Count,
             clients = _clients.ClientCount,
@@ -449,7 +417,7 @@ public sealed class RequestRouter : IRequestRouter
         await SseStreamer.WriteJsonAsync(ctx.Response, new ClientRegisterResponse
         {
             ClientId = clientId,
-            ServerVersion = "1.0.0"
+            ServerVersion = LlmServerInfo.Version
         });
     }
 
@@ -710,7 +678,7 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        if (!IsAllowedModelPath(req.Path))
+        if (!IsAllowedModelPath(req.Path, _config.Server.ModelsRoot))
         {
             _logger.Warn("Router", $"Blocked model load outside models_root: {req.Path}");
             await SseStreamer.WriteJsonAsync(ctx.Response,
@@ -728,7 +696,7 @@ public sealed class RequestRouter : IRequestRouter
             IsEmbedding = req.IsEmbedding
         };
 
-        var ok = _models.TryLoadModel(modelConfig);
+        var ok = await _models.TryLoadModelAsync(modelConfig);
         await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Ok = ok, Message = ok ? "Loaded" : "Failed to load" });
     }
 
@@ -777,21 +745,67 @@ public sealed class RequestRouter : IRequestRouter
     // ── Helpers ──────────────────────────────────────
 
     /// <summary>
-    /// True when modelPath resolves inside the configured models_root.
+    /// True when modelPath resolves inside the given models_root.
     /// Always true when no models_root is configured (trusted localhost setups).
     /// Uses Path.GetFullPath comparison — immune to ../ traversal tricks.
+    /// Static + internal for unit-testability; instance callers go through the wrapper below.
     /// </summary>
-    private bool IsAllowedModelPath(string modelPath)
+    internal static bool IsAllowedModelPath(string modelPath, string? modelsRoot)
     {
-        var root = _config.Server.ModelsRoot;
-        if (string.IsNullOrWhiteSpace(root)) return true;
+        if (string.IsNullOrWhiteSpace(modelsRoot)) return true;
 
         var fullModel = Path.GetFullPath(modelPath);
-        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fullRoot = Path.GetFullPath(modelsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         return fullModel.StartsWith(fullRoot + Path.DirectorySeparatorChar)
             || fullModel.StartsWith(fullRoot + Path.AltDirectorySeparatorChar);
     }
+
+    /// <summary>
+    /// Resolve the KV-cache session for a request, or null for stateless inference.
+    /// Callers must treat (null session + non-null sessionId) as a 404 condition.
+    /// </summary>
+    private SessionContext? ResolveSession(string clientId, string? sessionId)
+        => sessionId != null ? _sessions.GetSession(clientId, sessionId) : null;
+
+    private static Task WriteInvalidClientAsync(HttpListenerResponse res)
+        => SseStreamer.WriteJsonAsync(res,
+            new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
+
+    private static Task WriteSessionNotFoundAsync(HttpListenerResponse res, string sessionId)
+        => SseStreamer.WriteJsonAsync(res,
+            new ErrorResponse { Error = new() { Message = $"Session not found: {sessionId}", Type = "session_not_found" } }, 404);
+
+    /// <summary>
+    /// Read and deserialize a JSON request body. On failure, writes a 400 response
+    /// and returns ok=false so the handler can stop.
+    /// </summary>
+    private static async Task<(T? req, bool ok)> ReadBodyOrErrorAsync<T>(HttpListenerContext ctx, CancellationToken ct)
+    {
+        var req = await SseStreamer.ReadJsonAsync<T>(ctx.Request, ct);
+        if (req != null)
+            return (req, true);
+
+        await SseStreamer.WriteJsonAsync(ctx.Response,
+            new ErrorResponse { Error = new() { Message = "Invalid request body", Type = "invalid_request" } }, 400);
+        return (default, false);
+    }
+
+    /// <summary>
+    /// Shared stateless stream selection: vision requests bypass the warm prompt cache
+    /// (MTMD media queue is global per projector); otherwise warm cache if enabled.
+    /// </summary>
+    private IAsyncEnumerable<string> CreateStatelessStream(
+        ModelSlot slot,
+        string prompt,
+        LLama.Common.InferenceParams inferenceParams,
+        IReadOnlyList<byte[]>? images,
+        CancellationToken ct)
+        => images is { Count: > 0 }
+            ? StatelessVisionInferAsync(slot, prompt, inferenceParams, images, ct)
+            : EnableWarmPromptCache
+                ? _promptCache.InferAsync(slot, prompt, inferenceParams, ct)
+                : StatelessInferAsync(slot, prompt, inferenceParams, ct);
 
     private static string ExtractSessionIdFromPath(string path, string suffix)
     {
@@ -821,39 +835,32 @@ public sealed class RequestRouter : IRequestRouter
     }
 
     private static LLama.Common.InferenceParams CreateInferenceParams(ChatCompletionRequest req)
+        => CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, req.MaxTokens, req.Stop);
+
+    private static LLama.Common.InferenceParams CreateInferenceParams(CompletionRequest req)
+        => CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, req.MaxTokens, req.Stop);
+
+    private static LLama.Common.InferenceParams CreateInferenceParams(
+        float? temperature,
+        float? topP,
+        int? topK,
+        float? repeatPenalty,
+        int? maxTokens,
+        List<string>? stop)
     {
         // DefaultSamplingPipeline properties are init-only — use object initializer
         var pipe = new LLama.Sampling.DefaultSamplingPipeline
         {
-            Temperature = req.Temperature ?? 0.3f,
-            TopP = req.TopP ?? 0.95f,
-            TopK = req.TopK ?? 40,
-            RepeatPenalty = req.RepeatPenalty ?? 1.1f
+            Temperature = temperature ?? 0.3f,
+            TopP = topP ?? 0.95f,
+            TopK = topK ?? 40,
+            RepeatPenalty = repeatPenalty ?? 1.1f
         };
 
         return new LLama.Common.InferenceParams
         {
-            MaxTokens = req.MaxTokens ?? 512,
-            AntiPrompts = req.Stop?.ToArray() ?? new[] { "</s>", "User:", "### User" },
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
-            SamplingPipeline = pipe
-        };
-    }
-
-    private static LLama.Common.InferenceParams CreateInferenceParams(CompletionRequest req)
-    {
-        var pipe = new LLama.Sampling.DefaultSamplingPipeline
-        {
-            Temperature = req.Temperature ?? 0.3f,
-            TopP = req.TopP ?? 0.95f,
-            TopK = req.TopK ?? 40,
-            RepeatPenalty = req.RepeatPenalty ?? 1.1f
-        };
-
-        return new LLama.Common.InferenceParams
-        {
-            MaxTokens = req.MaxTokens ?? 512,
-            AntiPrompts = req.Stop?.ToArray() ?? new[] { "</s>", "User:", "### User" },
+            MaxTokens = maxTokens ?? 512,
+            AntiPrompts = stop?.ToArray() ?? new[] { "</s>", "User:", "### User" },
             OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
             SamplingPipeline = pipe
         };

@@ -60,7 +60,7 @@ public sealed class ModelSlot : IDisposable
     /// <summary>
     /// Load model weights from disk into memory.
     /// </summary>
-    public void Load()
+    public async Task LoadAsync()
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(ModelSlot));
@@ -72,13 +72,13 @@ public sealed class ModelSlot : IDisposable
 
         try
         {
-            Weights = LLamaWeights.LoadFromFile(Params);
+            Weights = await LLamaWeights.LoadFromFileAsync(Params);
 
             if (Config.IsEmbedding)
             {
                 Embedder = new LLamaEmbedder(Weights, Params);
                 // Determine embedding dimension from a test call
-                var testEmbeds = Embedder.GetEmbeddings("dimension test").Result;
+                var testEmbeds = await Embedder.GetEmbeddings("dimension test");
                 EmbeddingDim = testEmbeds.Single().Length;
             }
 

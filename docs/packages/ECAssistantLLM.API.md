@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 83  |  LOC: 5179  |  ~3420 tokens
+Types: 88  |  LOC: 5673  |  ~3601 tokens
 
 ---
 
@@ -181,6 +181,14 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 ### Class: LlmServerConfig
 > Root server configuration. Deserialized from llm-server.json.
 
+### Class: LlmServerConfigTests
+> Config validation and JSON Save/Load round-trip tests.
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Config
+
+### Class: LlmServerInfo
+> Single source of truth for the server version string.
+
 ### Class: LoadModelRequest
 > Generic API error response.
 
@@ -201,6 +209,10 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 Constructor:
   - ModelLoadTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: ModelPathPolicyTests
+> Pure-logic tests for model-path containment (models_root traversal guard).
+Cross-package deps: ECAssistant.LLM.Server
 
 ### Class: ModelPathRestrictionTests
 > Lightweight server harness for auth/security tests.
@@ -334,8 +346,13 @@ Constructor:
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: SseStreamer
-> Writes SSE (Server-Sent Events) streaming responses for OpenAI-compatible chat completions.
+> Writes SSE (Server-Sent Events) streaming responses for OpenAI-compatible endpoints.
 Cross-package deps: ECAssistant.LLM.Models
+
+### Class: SseStreamerTests
+> SSE framing tests over a real loopback HttpListener — no model weights involved.
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Server
 
 ### Class: SuccessResponse
 > Generic API error response.
@@ -369,6 +386,10 @@ Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Eng
 Constructor:
   - VramBudget(LlmServerConfig config)
 Cross-package deps: ECAssistant.LLM.Config
+
+### Class: VramBudgetTests
+> Pure-logic tests for VRAM budget reserve/release/exceed accounting.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
 
 ### Record: ClientInfo
 > Manages client connections: registration, heartbeat, eviction.

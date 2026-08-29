@@ -22,8 +22,15 @@ public sealed class LlmHttpServer : IDisposable
     private readonly IClientManager _clientManager;
     private readonly ILogger _logger;
     private readonly RequestRouter _router;
+    private readonly SemaphoreSlim _requestGate;
     private CancellationTokenSource? _cts;
     private bool _disposed;
+
+    /// <summary>
+    /// Max in-flight request tasks. Bounds memory/CPU under load spikes; inference itself
+    /// is additionally serialized by the scheduler. 4× cores is a sensible HTTP ceiling.
+    /// </summary>
+    private static readonly int MaxConcurrentRequests = Math.Max(8, Environment.ProcessorCount * 4);
 
     public LlmHttpServer(
         LlmServerConfig config,
@@ -49,6 +56,8 @@ public sealed class LlmHttpServer : IDisposable
         _router = new RequestRouter(
             _modelHost, _sessionRegistry, _scheduler, _vramBudget,
             _clientManager, _config, _logger, _cts);
+
+        _requestGate = new SemaphoreSlim(MaxConcurrentRequests, MaxConcurrentRequests);
 
         _listener.Prefixes.Add(_config.Server.Prefix);
     }
@@ -81,6 +90,9 @@ public sealed class LlmHttpServer : IDisposable
                 break; // listener stopped or disposed
             }
 
+            // Cap concurrent request tasks — blocks the accept loop when saturated.
+            await _requestGate.WaitAsync(runCts.Token);
+
             // Handle each request on a background task
             _ = Task.Run(async () =>
             {
@@ -101,8 +113,8 @@ public sealed class LlmHttpServer : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    // Suppress noisy broken-pipe errors — client just disconnected
-                    if (!ex.Message.Contains("Broken pipe") && !ex.Message.Contains("connection was closed"))
+                    // Suppress noisy client-disconnect errors (broken pipe / aborted connection)
+                    if (!IsClientDisconnect(ex))
                         _logger.Error("Server", $"Unhandled error: {ex.Message}");
                     try
                     {
@@ -114,12 +126,29 @@ public sealed class LlmHttpServer : IDisposable
                 }
                 finally
                 {
+                    _requestGate.Release();
                     try { ctx.Response.Close(); } catch { }
                 }
             }, _cts.Token);
         }
 
         _logger.Info("Server", "Shutting down...");
+    }
+
+    /// <summary>
+    /// True when the exception is an HttpListenerException caused by the client
+    /// disconnecting mid-response. Detected via the Win32 error code, not the
+    /// (locale-dependent) exception message.
+    /// </summary>
+    private static bool IsClientDisconnect(Exception ex)
+    {
+        if (ex is not HttpListenerException hle)
+            return false;
+
+        // Win32 error codes indicating client-side disconnect / broken pipe:
+        // 32 pipe not connected, 109 broken pipe, 232 no data, 995 operation aborted,
+        // 12002 internet timeout, 1229 connection invalid, 1236 connection aborted.
+        return hle.ErrorCode is 32 or 109 or 232 or 995 or 12002 or 1229 or 1236;
     }
 
     public void Dispose()

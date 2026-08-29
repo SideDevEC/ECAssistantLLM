@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 26  |  LOC: 2327  |  ~1272 tokens
+Types: 30  |  LOC: 2787  |  ~1434 tokens
 
 ---
 
@@ -60,6 +60,11 @@ Constructor:
   - KvCacheTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
+### Class: LlmServerConfigTests
+> Config validation and JSON Save/Load round-trip tests.
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Config
+
 ### Class: MalformedRequestTests
 > Tests for malformed requests — valid JSON but wrong types, missing fields,
 Constructor:
@@ -71,6 +76,10 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 Constructor:
   - ModelLoadTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: ModelPathPolicyTests
+> Pure-logic tests for model-path containment (models_root traversal guard).
+Cross-package deps: ECAssistant.LLM.Server
 
 ### Class: ModelPathRestrictionTests
 > Lightweight server harness for auth/security tests.
@@ -125,6 +134,11 @@ Constructor:
   - ShutdownTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
+### Class: SseStreamerTests
+> SSE framing tests over a real loopback HttpListener — no model weights involved.
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Server
+
 ### Class: TestServerFixture
 > Shared integration-test fixture. Starts the real ECAssistantLLM HTTP server
 Implements: IAsyncLifetime
@@ -144,3 +158,7 @@ Cross-package deps: Xunit
 ### Class: VisionInferenceE2ETests
 > FULL-SYSTEM vision E2E (Category=E2E, excluded from unit runs):
 Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server, Xunit
+
+### Class: VramBudgetTests
+> Pure-logic tests for VRAM budget reserve/release/exceed accounting.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine

@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-28T07:47:33.393187+00:00
-Packages: 2  |  Types: 109
+Generated: 2026-08-29T08:19:28.867400+00:00
+Packages: 2  |  Types: 118
 
 ---
 
-## ECAssistantLLM (83 types, ~5179 LOC)
+## ECAssistantLLM (88 types, ~5673 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -48,12 +48,15 @@ Packages: 2  |  Types: 109
 - 🟡 KvCacheTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =]
 - 🟡 LlmServerConfig  (ECAssistantLLM)
+- 🟡 LlmServerConfigTests : IDisposable  (ECAssistantLLM)
+- 🟡 LlmServerInfo  (ECAssistantLLM)
 - 🟡 LoadModelRequest  (ECAssistantLLM)
 - 🟡 LoggingSection  (ECAssistantLLM)
 - 🟡 MalformedRequestTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ModelConfig  (ECAssistantLLM)
 - 🟣 ModelInfo  (ECAssistantLLM)  deps: [string, string, bool, bool, int, uint, int]
 - 🟡 ModelLoadTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 ModelPathPolicyTests  (ECAssistantLLM)
 - 🟡 ModelPathRestrictionTests : IDisposable  (ECAssistantLLM)
 - 🟡 ModelSlot : IDisposable  (ECAssistantLLM)  deps: [string, ModelConfig, ILogger]
 - 🟡 ModelsTests  (ECAssistantLLM)  deps: [TestServerFixture]
@@ -81,6 +84,7 @@ Packages: 2  |  Types: 109
 - 🟣 SessionStatusInfo  (ECAssistantLLM)  deps: [string, string, string, bool, int, uint, double, DateTime, DateTime]
 - 🟡 ShutdownTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SseStreamer  (ECAssistantLLM)
+- 🟡 SseStreamerTests : IDisposable  (ECAssistantLLM)
 - 🟡 SuccessResponse  (ECAssistantLLM)
 - 🟡 TestServerFixture : IAsyncLifetime  (ECAssistantLLM)
 - 🟡 TokenizeRequest  (ECAssistantLLM)
@@ -90,8 +94,9 @@ Packages: 2  |  Types: 109
 - 🟡 VisionImageSuiteE2ETests : IAsyncLifetime  (ECAssistantLLM)
 - 🟡 VisionInferenceE2ETests  (ECAssistantLLM)
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
+- 🟡 VramBudgetTests  (ECAssistantLLM)
 
-## Tests (26 types, ~2327 LOC)
+## Tests (30 types, ~2787 LOC)
 
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ChatMessageContentConverterTests  (Tests)
@@ -103,8 +108,10 @@ Packages: 2  |  Types: 109
 - 🟡 HealthTests  (Tests)  deps: [TestServerFixture]
 - 🟡 HeartbeatTests  (Tests)  deps: [TestServerFixture]
 - 🟡 KvCacheTests  (Tests)  deps: [TestServerFixture]
+- 🟡 LlmServerConfigTests : IDisposable  (Tests)
 - 🟡 MalformedRequestTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ModelLoadTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ModelPathPolicyTests  (Tests)
 - 🟡 ModelPathRestrictionTests : IDisposable  (Tests)
 - 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
 - 🟡 PrefixMathTests  (Tests)
@@ -115,7 +122,9 @@ Packages: 2  |  Types: 109
 - 🟡 ServerLogTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SessionLifecycleTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]
+- 🟡 SseStreamerTests : IDisposable  (Tests)
 - 🟡 TestServerFixture : IAsyncLifetime  (Tests)
 - 🟡 TokenizeTests  (Tests)  deps: [TestServerFixture]
 - 🟡 VisionImageSuiteE2ETests : IAsyncLifetime  (Tests)
 - 🟡 VisionInferenceE2ETests  (Tests)
+- 🟡 VramBudgetTests  (Tests)

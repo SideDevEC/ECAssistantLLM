@@ -6,7 +6,7 @@ using ECAssistant.LLM.Models;
 namespace ECAssistant.LLM.Server;
 
 /// <summary>
-/// Writes SSE (Server-Sent Events) streaming responses for OpenAI-compatible chat completions.
+/// Writes SSE (Server-Sent Events) streaming responses for OpenAI-compatible endpoints.
 /// </summary>
 public static class SseStreamer
 {
@@ -17,13 +17,68 @@ public static class SseStreamer
     };
 
     /// <summary>
-    /// Stream tokens as SSE chunks. Writes directly to the HttpListenerResponse output stream.
+    /// Upper bound for buffered request bodies (10 MB). Requests declaring or
+    /// exceeding this size are rejected before buffering.
     /// </summary>
-    public static async Task StreamAsync(
+    public const long MaxRequestBodyBytes = 10 * 1024 * 1024;
+
+    /// <summary>
+    /// Stream tokens as SSE chunks (chat format, object = chat.completion.chunk).
+    /// </summary>
+    public static Task StreamAsync(
         HttpListenerResponse response,
         IAsyncEnumerable<string> tokenStream,
         string model,
         CancellationToken ct)
+        => StreamSseAsync(
+            response, tokenStream, ct,
+            makeDelta: (token, chunkId) =>
+            {
+                var chunk = ChatCompletionChunk.Delta(model, token);
+                chunk.Id = chunkId;
+                return chunk;
+            },
+            makeFinish: chunkId =>
+            {
+                var chunk = ChatCompletionChunk.Finish(model);
+                chunk.Id = chunkId;
+                return chunk;
+            });
+
+    /// <summary>
+    /// Stream tokens as SSE chunks for text completions (object = text_completion).
+    /// Uses CompletionChunk format with choices[].text instead of choices[].delta.content.
+    /// </summary>
+    public static Task StreamCompletionAsync(
+        HttpListenerResponse response,
+        IAsyncEnumerable<string> tokenStream,
+        string model,
+        CancellationToken ct)
+        => StreamSseAsync(
+            response, tokenStream, ct,
+            makeDelta: (token, chunkId) =>
+            {
+                var chunk = CompletionChunk.Delta(model, token);
+                chunk.Id = chunkId;
+                return chunk;
+            },
+            makeFinish: chunkId =>
+            {
+                var chunk = CompletionChunk.Finish(model);
+                chunk.Id = chunkId;
+                return chunk;
+            });
+
+    /// <summary>
+    /// Shared SSE framing core: per-token delta events, a final finish_reason event,
+    /// then the [DONE] marker. Format-specific chunk construction is injected.
+    /// </summary>
+    private static async Task StreamSseAsync(
+        HttpListenerResponse response,
+        IAsyncEnumerable<string> tokenStream,
+        CancellationToken ct,
+        Func<string, string, object> makeDelta,
+        Func<string, object> makeFinish)
     {
         response.ContentType = "text/event-stream";
         response.Headers["Cache-Control"] = "no-cache";
@@ -38,17 +93,13 @@ public static class SseStreamer
         {
             await foreach (var token in tokenStream.WithCancellation(ct))
             {
-                var chunk = ChatCompletionChunk.Delta(model, token);
-                chunk.Id = chunkId;
-                var json = JsonSerializer.Serialize(chunk, JsonOptions);
+                var json = JsonSerializer.Serialize(makeDelta(token, chunkId), JsonOptions);
                 await writer.WriteLineAsync($"data: {json}");
                 await writer.WriteLineAsync(); // empty line = event boundary
             }
 
             // Final chunk with finish_reason
-            var finishChunk = ChatCompletionChunk.Finish(model);
-            finishChunk.Id = chunkId;
-            var finishJson = JsonSerializer.Serialize(finishChunk, JsonOptions);
+            var finishJson = JsonSerializer.Serialize(makeFinish(chunkId), JsonOptions);
             await writer.WriteLineAsync($"data: {finishJson}");
             await writer.WriteLineAsync();
 
@@ -63,59 +114,6 @@ public static class SseStreamer
         catch (Exception ex)
         {
             // Send error as SSE event
-            var errorJson = JsonSerializer.Serialize(new { error = new { message = ex.Message, type = "stream_error" } });
-            await writer.WriteLineAsync($"data: {errorJson}");
-            await writer.WriteLineAsync();
-        }
-    }
-
-    /// <summary>
-    /// Stream tokens as SSE chunks for text completions (object = text_completion).
-    /// Uses CompletionChunk format with choices[].text instead of choices[].delta.content.
-    /// </summary>
-    public static async Task StreamCompletionAsync(
-        HttpListenerResponse response,
-        IAsyncEnumerable<string> tokenStream,
-        string model,
-        CancellationToken ct)
-    {
-        response.ContentType = "text/event-stream";
-        response.Headers["Cache-Control"] = "no-cache";
-        response.Headers["Connection"] = "keep-alive";
-
-        var stream = response.OutputStream;
-        var chunkId = Guid.NewGuid().ToString("N");
-
-        await using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
-
-        try
-        {
-            await foreach (var token in tokenStream.WithCancellation(ct))
-            {
-                var chunk = CompletionChunk.Delta(model, token);
-                chunk.Id = chunkId;
-                var json = JsonSerializer.Serialize(chunk, JsonOptions);
-                await writer.WriteLineAsync($"data: {json}");
-                await writer.WriteLineAsync();
-            }
-
-            // Final chunk with finish_reason
-            var finishChunk = CompletionChunk.Finish(model);
-            finishChunk.Id = chunkId;
-            var finishJson = JsonSerializer.Serialize(finishChunk, JsonOptions);
-            await writer.WriteLineAsync($"data: {finishJson}");
-            await writer.WriteLineAsync();
-
-            // End of stream marker
-            await writer.WriteLineAsync("data: [DONE]");
-            await writer.WriteLineAsync();
-        }
-        catch (OperationCanceledException)
-        {
-            // Client disconnected or cancelled — normal
-        }
-        catch (Exception ex)
-        {
             var errorJson = JsonSerializer.Serialize(new { error = new { message = ex.Message, type = "stream_error" } });
             await writer.WriteLineAsync($"data: {errorJson}");
             await writer.WriteLineAsync();
@@ -148,12 +146,36 @@ public static class SseStreamer
     }
 
     /// <summary>
-    /// Read JSON body from request.
+    /// Read JSON body from request, enforcing MaxRequestBodyBytes. Oversized or
+    /// undersized-declared bodies return default (callers respond 400).
     /// </summary>
     public static async Task<T?> ReadJsonAsync<T>(HttpListenerRequest request, CancellationToken ct = default)
     {
-        using var reader = new StreamReader(request.InputStream);
-        var body = await reader.ReadToEndAsync(ct);
+        // Stream-read the body: buffer at most MaxRequestBodyBytes, discard anything
+        // beyond that (up to a hard ceiling) so the client is not left blocked writing.
+        using var ms = new MemoryStream();
+        var buffer = new byte[81920];
+        const long MaxDiscardBytes = 256 * 1024 * 1024;
+        long total = 0;
+        bool tooLarge = false;
+        int read;
+        while ((read = await request.InputStream.ReadAsync(buffer, ct)) > 0)
+        {
+            total += read;
+            if (total > MaxRequestBodyBytes)
+            {
+                tooLarge = true;
+                if (total > MaxDiscardBytes)
+                    return default; // pathological body — give up draining
+                continue; // drain-and-discard: never buffered
+            }
+            ms.Write(buffer, 0, read);
+        }
+
+        if (tooLarge)
+            return default;
+
+        var body = Encoding.UTF8.GetString(ms.ToArray());
         if (string.IsNullOrWhiteSpace(body))
             return default;
         return JsonSerializer.Deserialize<T>(body, JsonOptions);

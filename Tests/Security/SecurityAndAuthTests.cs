@@ -169,6 +169,54 @@ public class ClientAuthTests
         var resp = await h.PostJsonAsync("/eca/shutdown", null, clientId: null);
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
+
+    [Fact]
+    public async Task OpenAiChatCompletion_WithoutClientId_Returns_401()
+    {
+        using var h = SecurityHarness.Start(modelsRoot: null);
+        var resp = await h.PostJsonAsync("/v1/chat/completions",
+            new { model = "main", messages = new[] { new { role = "user", content = "hi" } } }, clientId: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task OpenAiEndpoints_WithUnregisteredClientId_Return_401()
+    {
+        using var h = SecurityHarness.Start(modelsRoot: null);
+        var chat = await h.PostJsonAsync("/v1/chat/completions",
+            new { model = "main", messages = new[] { new { role = "user", content = "hi" } } }, "not-a-real-client");
+        Assert.Equal(HttpStatusCode.Unauthorized, chat.StatusCode);
+
+        var embed = await h.PostJsonAsync("/v1/embeddings", new { input = "hi" }, "not-a-real-client");
+        Assert.Equal(HttpStatusCode.Unauthorized, embed.StatusCode);
+    }
+
+    [Fact]
+    public async Task OpenAiModels_WithoutClientId_Returns_401()
+    {
+        using var h = SecurityHarness.Start(modelsRoot: null);
+        using var resp = await h.Client.GetAsync("/v1/models");
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task OpenAiEndpoints_WithRegisteredClientId_PassAuth()
+    {
+        using var h = SecurityHarness.Start(modelsRoot: null);
+        var clientId = await h.RegisterClientAsync("openai-auth");
+
+        // Auth must pass (failure happens later — model not loaded → 5xx, not 401)
+        using var modelsReq = new HttpRequestMessage(HttpMethod.Get, "/v1/models");
+        modelsReq.Headers.Add("X-Client-Id", clientId);
+        var models = await h.Client.SendAsync(modelsReq);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, models.StatusCode);
+        models.Dispose();
+
+        var chat = await h.PostJsonAsync("/v1/chat/completions",
+            new { model = "main", messages = new[] { new { role = "user", content = "hi" } } }, clientId);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, chat.StatusCode);
+        chat.Dispose();
+    }
 }
 
 /// <summary>

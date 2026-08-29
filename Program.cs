@@ -65,7 +65,7 @@ var logFilePath = Path.IsPathRooted(config.Logging.File)
     : Path.Combine(rootDir, config.Logging.File);
 var logger = new ServerLogger(logLevel, logFilePath);
 
-logger.Info("Main", $"ECAssistantLLM v1.0.0");
+logger.Info("Main", $"ECAssistantLLM v{LlmServerInfo.Version}");
 logger.Info("Main", $"Root: {rootDir}");
 logger.Info("Main", $"Config: {configPath}");
 
@@ -110,7 +110,7 @@ var vramBudget = new VramBudget(config);
 logger.Info("Main", "Loading models...");
 try
 {
-    modelHost.LoadAll();
+    await modelHost.LoadAllAsync();
 }
 catch (Exception ex)
 {

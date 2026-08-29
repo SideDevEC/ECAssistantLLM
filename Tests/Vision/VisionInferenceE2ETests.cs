@@ -64,7 +64,7 @@ public class VisionInferenceE2ETests
         };
 
         var modelHost = new MultiModelHost(config, logger);
-        modelHost.LoadAll(); // E2E: load the vision model eagerly (Program.cs does the same)
+        await modelHost.LoadAllAsync(); // E2E: load the vision model eagerly (Program.cs does the same)
         var scheduler = new InferenceScheduler(logger);
         var vramBudget = new VramBudget(config);
         var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger);
