@@ -97,6 +97,7 @@ foreach (var model in config.Models)
             var inModelsDir = Path.Combine(rootDir, "models", Path.GetFileName(model.Path));
             if (File.Exists(inModelsDir))
                 model.Path = inModelsDir;
+            // v12.9: no dev-environment fallbacks — relative paths resolve strictly against the root.
         }
     }
     logger.Info("Main", $"  Model '{model.Id}': {model.Path}");
@@ -115,8 +116,9 @@ try
 catch (Exception ex)
 {
     logger.Error("Main", $"Failed to load models: {ex.Message}");
-    Console.Error.WriteLine($"FATAL: Failed to load models: {ex.Message}");
-    return 1;
+    // v12.8: keep the server alive even when models fail to load — the app can still
+    // reach /reinstall and the health endpoint instead of the child dying silently.
+    logger.Warn("Main", "Server continuing WITHOUT loaded models. Fix llm-server.json paths or run the installer.");
 }
 
 var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger, vramBudget);

@@ -26,7 +26,7 @@ public static class ThinkFilter
             // Special-token artifacts (EOS emitted as text, e.g. "</s>", "<|im_end|>") — never output.
             var t = token.Trim();
             if (t.Length > 2 && t.StartsWith('<') && t.EndsWith('>') &&
-                (t.Contains("|_") || t == "</s>"))
+                (t.Contains('|') || t == "</s>"))
                 continue;
 
             buf.Append(token);
