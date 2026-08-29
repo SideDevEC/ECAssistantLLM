@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 88  |  LOC: 5679  |  ~3601 tokens
+Types: 89  |  LOC: 5745  |  ~3623 tokens
 
 ---
 
@@ -361,6 +361,9 @@ Cross-package deps: ECAssistant.LLM.Server
 > Shared integration-test fixture. Starts the real ECAssistantLLM HTTP server
 Implements: IAsyncLifetime
 Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
+
+### Class: ThinkFilter
+> Stream-safe filter that removes reasoning-model thinking blocks
 
 ### Class: TokenizeRequest
 

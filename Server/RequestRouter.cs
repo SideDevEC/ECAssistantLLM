@@ -203,12 +203,12 @@ public sealed class RequestRouter : IRequestRouter
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
-                tokenStream = session.InferAsync(prompt, inferenceParams, ct, images);
+                tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images), ct);
             }
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = CreateStatelessStream(modelSlot, prompt, inferenceParams, images, ct);
+                tokenStream = ThinkFilter.ApplyAsync(CreateStatelessStream(modelSlot, prompt, inferenceParams, images, ct), ct);
             }
 
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -218,13 +218,13 @@ public sealed class RequestRouter : IRequestRouter
             var sb = new StringBuilder();
             if (session != null)
             {
-                await foreach (var token in session.InferAsync(prompt, inferenceParams, ct, images))
+                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images), ct))
                     sb.Append(token);
             }
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                await foreach (var token in CreateStatelessStream(modelSlot, prompt, inferenceParams, images, ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(modelSlot, prompt, inferenceParams, images, ct), ct))
                     sb.Append(token);
             }
 
@@ -278,12 +278,12 @@ public sealed class RequestRouter : IRequestRouter
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
-                tokenStream = session.InferAsync(prompt, inferenceParams, ct);
+                tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct), ct);
             }
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = CreateStatelessStream(modelSlot, prompt, inferenceParams, images: null, ct);
+                tokenStream = ThinkFilter.ApplyAsync(CreateStatelessStream(modelSlot, prompt, inferenceParams, images: null, ct), ct);
             }
 
             await SseStreamer.StreamCompletionAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -294,13 +294,13 @@ public sealed class RequestRouter : IRequestRouter
 
             if (session != null)
             {
-                await foreach (var token in session.InferAsync(prompt, inferenceParams, ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct), ct))
                     sb.Append(token);
             }
             else
             {
                 var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                await foreach (var token in CreateStatelessStream(modelSlot, prompt, inferenceParams, images: null, ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(modelSlot, prompt, inferenceParams, images: null, ct), ct))
                     sb.Append(token);
             }
 

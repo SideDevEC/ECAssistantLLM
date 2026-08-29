@@ -87,7 +87,7 @@ public static class SseStreamer
         var stream = response.OutputStream;
         var chunkId = Guid.NewGuid().ToString("N");
 
-        await using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+        await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)) { AutoFlush = true };
 
         try
         {

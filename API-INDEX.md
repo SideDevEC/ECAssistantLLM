@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-29T11:39:35.862580+00:00
-Packages: 2  |  Types: 118
+Generated: 2026-08-29T12:52:43.372652+00:00
+Packages: 2  |  Types: 119
 
 ---
 
-## ECAssistantLLM (88 types, ~5679 LOC)
+## ECAssistantLLM (89 types, ~5745 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -87,6 +87,7 @@ Packages: 2  |  Types: 118
 - 🟡 SseStreamerTests : IDisposable  (ECAssistantLLM)
 - 🟡 SuccessResponse  (ECAssistantLLM)
 - 🟡 TestServerFixture : IAsyncLifetime  (ECAssistantLLM)
+- 🟡 ThinkFilter  (ECAssistantLLM)
 - 🟡 TokenizeRequest  (ECAssistantLLM)
 - 🟡 TokenizeResponse  (ECAssistantLLM)
 - 🟡 TokenizeTests  (ECAssistantLLM)  deps: [TestServerFixture]
