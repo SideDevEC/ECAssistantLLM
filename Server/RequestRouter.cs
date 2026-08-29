@@ -178,7 +178,8 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var prompt = BuildPromptFromMessages(req.Messages);
+        var templateSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
+        var prompt = BuildPromptFromMessages(templateSlot, req.Messages);
         var inferenceParams = CreateInferenceParams(req);
 
         // Vision: collect image payloads from all messages (markers are already in Content).
@@ -824,14 +825,23 @@ public sealed class RequestRouter : IRequestRouter
         return "";
     }
 
-    private static string BuildPromptFromMessages(List<ChatMessage> messages)
+    private static string BuildPromptFromMessages(ModelSlot slot, List<ChatMessage> messages)
     {
-        var sb = new StringBuilder();
-        foreach (var msg in messages)
+        // Fall back to a plain transcript when the model weights aren't loaded.
+        if (slot.Weights == null)
         {
-            sb.AppendLine($"{msg.Role}: {msg.Content}");
+            var sb = new StringBuilder();
+            foreach (var msg in messages)
+                sb.AppendLine($"{msg.Role}: {msg.Content}");
+            return sb.ToString();
         }
-        return sb.ToString();
+
+        // Apply the model's embedded chat template (e.g. Qwen <|im_start|>) instead of a
+        // raw "role: content" transcript — raw text makes instruct models hallucinate turns.
+        var template = new LLama.LLamaTemplate(slot.Weights.NativeHandle) { AddAssistant = true };
+        foreach (var msg in messages)
+            template.Add(msg.Role.ToLowerInvariant(), msg.Content);
+        return LLama.Transformers.PromptTemplateTransformer.ToModelPrompt(template);
     }
 
     private static LLama.Common.InferenceParams CreateInferenceParams(ChatCompletionRequest req)
