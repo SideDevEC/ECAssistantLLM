@@ -207,6 +207,8 @@ public sealed class RequestRouter : IRequestRouter
         // Always non-streamed — the client gets one JSON document with the decision.
         if (req.Structured)
         {
+            var structuredSw = System.Diagnostics.Stopwatch.StartNew();
+            _logger.Info("Router", $"[Structured] generation start (session={req.SessionId ?? "stateless"}, max_tokens={req.MaxTokens})");
             var structuredParams = CreateStructuredInferenceParams(req);
             var structuredSb = new StringBuilder();
             if (session != null)
@@ -220,14 +222,17 @@ public sealed class RequestRouter : IRequestRouter
                     structuredSb.Append(token);
             }
 
+            structuredSw.Stop();
+            _logger.Info("Router", $"[Structured] generated {structuredSb.Length} chars in {structuredSw.ElapsedMilliseconds} ms");
             try
             {
                 var envelope = StructuredDecoder.Decode(structuredSb.ToString());
+                _logger.Info("Router", $"[Structured] decoded: answer={envelope.HasAnswer}, toolcalls={envelope.ToolCalls?.Count ?? 0}");
                 await SseStreamer.WriteJsonAsync(ctx.Response, new { decision = envelope });
             }
             catch (InvalidDecisionException ex)
             {
-                _logger.Warn("Router", $"Structured decode failed: {ex.Message}");
+                _logger.Warn("Router", $"Structured decode failed: {ex.Message} | raw: {structuredSb.ToString()[..Math.Min(structuredSb.Length, 300)]}");
                 await SseStreamer.WriteJsonAsync(ctx.Response,
                     new ErrorResponse { Error = new() { Message = $"Invalid decision envelope: {ex.Message}", Type = "invalid_decision" } }, 422);
             }
@@ -913,10 +918,12 @@ public sealed class RequestRouter : IRequestRouter
             RepeatPenalty = req.RepeatPenalty ?? 1.1f,
             Grammar = new LLama.Sampling.Grammar(DecisionGrammar.Gbnf, DecisionGrammar.Root),
         };
+        // v13: NO anti-prompts here — the grammar already bounds output, and a stop
+        // sequence (e.g. "User:") can legally occur inside a JSON string value,
+        // truncating the envelope mid-document.
         return new LLama.Common.InferenceParams
         {
             MaxTokens = req.MaxTokens ?? 512,
-            AntiPrompts = req.Stop ?? new List<string>(),
             SamplingPipeline = pipe,
         };
     }

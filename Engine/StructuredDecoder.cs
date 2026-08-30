@@ -34,7 +34,14 @@ public static class StructuredDecoder
         }
 
         if (!envelope.HasAnswer && !envelope.HasToolCalls)
-            throw new InvalidDecisionException("Envelope has neither answer nor toolcalls");
+        {
+            // Grammar-valid but empty content (models sometimes emit "answer": ""
+            // on prefilled sessions). Lenient: the thinking IS the reply — mirror
+            // the client-side adapter fallback instead of rejecting.
+            envelope.Answer = string.IsNullOrWhiteSpace(envelope.Thinking)
+                ? throw new InvalidDecisionException("Envelope has neither answer nor toolcalls")
+                : envelope.Thinking;
+        }
 
         if (envelope.HasToolCalls)
         {
