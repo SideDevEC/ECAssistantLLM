@@ -38,24 +38,6 @@ public sealed class CompletionRequest
 
     [JsonPropertyName("stop")]
     public List<string>? Stop { get; set; }
-
-    [JsonPropertyName("n")]
-    public int N { get; set; } = 1;
-
-    [JsonPropertyName("logprobs")]
-    public int? Logprobs { get; set; }
-
-    [JsonPropertyName("presence_penalty")]
-    public float? PresencePenalty { get; set; }
-
-    [JsonPropertyName("frequency_penalty")]
-    public float? FrequencyPenalty { get; set; }
-
-    [JsonPropertyName("best_of")]
-    public int? BestOf { get; set; }
-
-    [JsonPropertyName("user")]
-    public string? User { get; set; }
 }
 
 /// <summary>

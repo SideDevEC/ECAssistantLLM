@@ -11,7 +11,7 @@ public interface IClientManager
     string Register(string clientName, string? version = null);
     bool Heartbeat(string clientId, int activeSessions);
     bool Disconnect(string clientId);
+
     bool IsValid(string clientId);
-    IReadOnlyList<ClientInfo> ListClients();
     void Dispose();
 }

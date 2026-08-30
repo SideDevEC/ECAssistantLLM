@@ -134,18 +134,6 @@ public static class SseStreamer
     }
 
     /// <summary>
-    /// Write a plain text response.
-    /// </summary>
-    public static async Task WriteTextAsync(HttpListenerResponse response, string text, int statusCode = 200)
-    {
-        response.StatusCode = statusCode;
-        response.ContentType = "text/plain";
-        var bytes = Encoding.UTF8.GetBytes(text);
-        response.ContentLength64 = bytes.Length;
-        await response.OutputStream.WriteAsync(bytes);
-    }
-
-    /// <summary>
     /// Read JSON body from request, enforcing MaxRequestBodyBytes. Oversized or
     /// undersized-declared bodies return default (callers respond 400).
     /// </summary>

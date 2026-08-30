@@ -53,7 +53,7 @@ public sealed class SecurityHarness : IDisposable
 
         var logger = new ServerLogger(LogLevel.Error);
         logger.DisableConsole();
-        var modelHost = new MultiModelHost(config, logger);
+        var modelHost = new MultiModelHost(config, logger, Path.Combine(Path.GetTempPath(), "eca-sec-tests"));
         var scheduler = new InferenceScheduler(logger);
         var vramBudget = new VramBudget(config);
         var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger, vramBudget);

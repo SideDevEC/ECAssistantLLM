@@ -13,6 +13,8 @@ public sealed class MultiModelHost : IDisposable
     private readonly object _slotsLock = new();
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
+    /// <summary>Server root (--root). Model paths resolve strictly inside this directory.</summary>
+    private readonly string _rootDir;
     private bool _disposed;
 
     /// <summary>Model IDs that are loaded.</summary>
@@ -30,10 +32,13 @@ public sealed class MultiModelHost : IDisposable
     /// <summary>Embedding model ID (first embedding model in config, or null).</summary>
     public string? EmbeddingModelId { get; }
 
-    public MultiModelHost(LlmServerConfig config, ILogger logger)
+    public MultiModelHost(LlmServerConfig config, ILogger logger, string rootDir)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _rootDir = string.IsNullOrWhiteSpace(rootDir)
+            ? throw new ArgumentNullException(nameof(rootDir))
+            : Path.GetFullPath(rootDir);
 
         MainModelId = config.Models.FirstOrDefault(m => !m.IsEmbedding)?.Id
             ?? throw new InvalidOperationException("No chat model configured");
@@ -49,7 +54,7 @@ public sealed class MultiModelHost : IDisposable
     {
         foreach (var modelConfig in _config.Models)
         {
-            var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger);
+            var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger, _rootDir);
             await slot.LoadAsync();
             lock (_slotsLock)
             {
@@ -110,7 +115,7 @@ public sealed class MultiModelHost : IDisposable
             }
         }
 
-        var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger);
+        var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger, _rootDir);
         try
         {
             await slot.LoadAsync();

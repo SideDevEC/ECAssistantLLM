@@ -49,13 +49,6 @@ public sealed class PromptCacheSessionManager : IDisposable
         }
     }
 
-    /// <summary>Log per-model hit/cold stats for visibility.</summary>
-    public void LogStats()
-    {
-        foreach (var s in _sessions.Values)
-            _logger.Info("PromptCache", $"[{s.ModelId}] hits={s.CacheHits} cold={s.ColdStarts} template={s.TemplateChars}ch");
-    }
-
     public void Dispose()
     {
         if (_disposed) return;

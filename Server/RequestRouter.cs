@@ -178,7 +178,13 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var templateSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
+        var templateSlot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
+        if (templateSlot?.Weights == null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
+            return;
+        }
         var prompt = BuildPromptFromMessages(templateSlot, req.Messages);
         var inferenceParams = CreateInferenceParams(req);
 
@@ -187,8 +193,7 @@ public sealed class RequestRouter : IRequestRouter
 
         if (images.Count > 0)
         {
-            var modelSlotForVision = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-            if (!modelSlotForVision.SupportsVision)
+            if (!templateSlot.SupportsVision)
             {
                 await SseStreamer.WriteJsonAsync(ctx.Response,
                     new ErrorResponse { Error = new() { Message = "Model does not support vision — configure mmproj_path for this model.", Type = "invalid_request" } }, 400);
@@ -207,8 +212,7 @@ public sealed class RequestRouter : IRequestRouter
             }
             else
             {
-                var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = ThinkFilter.ApplyAsync(CreateStatelessStream(modelSlot, prompt, inferenceParams, images, ct), ct);
+                tokenStream = ThinkFilter.ApplyAsync(CreateStatelessStream(templateSlot, prompt, inferenceParams, images, ct), ct);
             }
 
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -223,8 +227,7 @@ public sealed class RequestRouter : IRequestRouter
             }
             else
             {
-                var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(modelSlot, prompt, inferenceParams, images, ct), ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(templateSlot, prompt, inferenceParams, images, ct), ct))
                     sb.Append(token);
             }
 
@@ -267,11 +270,18 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
+        var slot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
+        if (slot?.Weights == null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
+            return;
+        }
         var prompt = req.Prompt;
 
         var inferenceParams = CreateInferenceParams(req);
 
-        await using var slot = await _scheduler.AcquireAsync(ct);
+        await using var gate = await _scheduler.AcquireAsync(ct);
 
         if (req.Stream)
         {
@@ -282,8 +292,7 @@ public sealed class RequestRouter : IRequestRouter
             }
             else
             {
-                var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                tokenStream = ThinkFilter.ApplyAsync(CreateStatelessStream(modelSlot, prompt, inferenceParams, images: null, ct), ct);
+                tokenStream = ThinkFilter.ApplyAsync(CreateStatelessStream(slot, prompt, inferenceParams, images: null, ct), ct);
             }
 
             await SseStreamer.StreamCompletionAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -299,8 +308,7 @@ public sealed class RequestRouter : IRequestRouter
             }
             else
             {
-                var modelSlot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-                await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(modelSlot, prompt, inferenceParams, images: null, ct), ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(slot, prompt, inferenceParams, images: null, ct), ct))
                     sb.Append(token);
             }
 
@@ -515,6 +523,12 @@ public sealed class RequestRouter : IRequestRouter
                 estimated_vram_mb = session.EstimatedVramMb
             });
         }
+        catch (InvalidOperationException ex) when (ex.Message.StartsWith("VRAM budget exceeded"))
+        {
+            // Documented contract: over-budget session creation is a 503, not a client error.
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = ex.Message, Type = "vram_exceeded" } }, 503);
+        }
         catch (Exception ex)
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
@@ -725,8 +739,15 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var slot = _models.TryGetSlot(req.Model) ?? _models.GetMainSlot();
-        if (slot.Weights == null)
+        var slot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
+        if (slot == null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
+            return;
+        }
+
+        // Use LLamaSharp tokenizer via a temporary context
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);

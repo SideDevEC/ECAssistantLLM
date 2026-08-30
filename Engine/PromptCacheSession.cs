@@ -41,7 +41,6 @@ public sealed class PromptCacheSession : IDisposable
     private readonly Queue<string> _recentPrompts = new();
 
     private LLamaContext? _context;
-    private InteractiveExecutor? _executor;
 
     // Checkpoint A: end of the stable template region (lives in its own retired context).
     private StatefulExecutorBase.ExecutorBaseState? _templateState;
@@ -98,7 +97,6 @@ public sealed class PromptCacheSession : IDisposable
             Microsoft.Extensions.Logging.Abstractions.NullLogger<LLamaContext>.Instance);
         oldContext?.Dispose();
         _context = context;
-        _executor = executor;
 
         await _ioLock.WaitAsync(ct);
         try
@@ -163,15 +161,6 @@ public sealed class PromptCacheSession : IDisposable
     }
 
     /// <summary>Drop all cached state; next call performs a full cold prefill.</summary>
-    public void Invalidate()
-    {
-        _lastState = null;
-        _lastPromptText = string.Empty;
-        _templateState = null;
-        _templateText = string.Empty;
-        _recentPrompts.Clear();
-    }
-
     private void TrackRecentPrompt(string prompt)
     {
         _recentPrompts.Enqueue(prompt);
@@ -263,6 +252,5 @@ public sealed class PromptCacheSession : IDisposable
         _disposed = true;
         _context?.Dispose();
         _context = null;
-        _executor = null;
     }
 }

@@ -12,6 +12,8 @@ namespace ECAssistant.LLM.Engine;
 public sealed class ModelSlot : IDisposable
 {
     private readonly ILogger _logger;
+    /// <summary>Server root (--root). Model paths resolve strictly inside this directory.</summary>
+    private readonly string _rootDir;
     private bool _disposed;
 
     /// <summary>Unique model ID (used in OpenAI "model" field).</summary>
@@ -48,11 +50,14 @@ public sealed class ModelSlot : IDisposable
     /// <summary>True when this model accepts image input (mmproj configured).</summary>
     public bool SupportsVision => Config.SupportsVision;
 
-    public ModelSlot(string id, ModelConfig config, ILogger logger)
+    public ModelSlot(string id, ModelConfig config, ILogger logger, string rootDir)
     {
         Id = id ?? throw new ArgumentNullException(nameof(id));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _rootDir = string.IsNullOrWhiteSpace(rootDir)
+            ? throw new ArgumentNullException(nameof(rootDir))
+            : Path.GetFullPath(rootDir);
 
         Params = CreateModelParams(config);
     }
@@ -67,7 +72,7 @@ public sealed class ModelSlot : IDisposable
         if (Weights != null)
             return;
 
-        var resolvedPath = ResolveModelPath(Config.Path);
+        var resolvedPath = ResolveModelPath(Config.Path, _rootDir);
         Params = CreateModelParams(Config, resolvedPath);
 
         try
@@ -114,7 +119,7 @@ public sealed class ModelSlot : IDisposable
         {
             var path = Config.MmprojPath!;
             if (!Path.IsPathRooted(path))
-                path = ResolveModelPath(path);
+                path = ResolveModelPath(path, _rootDir);
             var mtmd = MtmdWeights.LoadFromFile(path, Weights!, MtmdContextParams.Default());
             _logger.Info("ModelSlot", $"Loaded mmproj projector '{Path.GetFileName(path)}' for model '{Id}' — vision enabled");
             return mtmd;
@@ -154,29 +159,32 @@ public sealed class ModelSlot : IDisposable
         return mp;
     }
 
-    private static string ResolveModelPath(string path)
+    private static string ResolveModelPath(string path, string rootDir)
     {
-        // Program.cs resolves model paths to absolute before loading.
-        // This is a fallback for standalone execution.
-        if (Path.IsPathRooted(path) && File.Exists(path))
-            return path;
-
-        var dirs = new[]
+        // ROOT-ONLY contract: absolute paths are allowed only inside the root
+        // (warn+fail otherwise); relative paths resolve only as {root}/{path} or
+        // {root}/models/{filename}. No AppContext.BaseDirectory / CWD fallback.
+        if (Path.IsPathRooted(path))
         {
-            AppContext.BaseDirectory,
-            Directory.GetCurrentDirectory(),
-            Path.Combine(AppContext.BaseDirectory, "models"),
-            Path.Combine(Directory.GetCurrentDirectory(), "models"),
-        };
-
-        foreach (var dir in dirs)
-        {
-            var full = Path.Combine(dir, path);
-            if (File.Exists(full))
-                return full;
+            var full = Path.GetFullPath(path);
+            if (!full.StartsWith(Path.GetFullPath(rootDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+                !string.Equals(full, Path.GetFullPath(rootDir), StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Model path '{path}' is outside the server root '{rootDir}' — refusing to load.");
+            }
+            return full;
         }
 
-        return Path.IsPathRooted(path) ? path : Path.Combine(Directory.GetCurrentDirectory(), path);
+        var inRoot = Path.Combine(rootDir, path);
+        if (File.Exists(inRoot))
+            return inRoot;
+
+        var inModels = Path.Combine(rootDir, "models", Path.GetFileName(path));
+        if (File.Exists(inModels))
+            return inModels;
+
+        return inRoot;
     }
 
     public void Dispose()

@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 31  |  LOC: 2853  |  ~1477 tokens
+Types: 30  |  LOC: 2810  |  ~1440 tokens
 
 ---
 
@@ -91,10 +91,6 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 Constructor:
   - ModelsTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
-
-### Class: PrefixMathTests
-> Pure-math tests for prompt-cache common-prefix bookkeeping.
-Cross-package deps: LLama.Native, ECAssistant.LLM.Engine
 
 ### Class: RouteMethodTests
 > Lightweight server harness for auth/security tests.

@@ -117,15 +117,6 @@ public sealed class PrefillResponse
 }
 
 /// <summary>
-/// Rewind request.
-/// </summary>
-public sealed class RewindRequest
-{
-    [JsonPropertyName("state_id")]
-    public string? StateId { get; set; }
-}
-
-/// <summary>
 /// Rewind response.
 /// </summary>
 public sealed class RewindResponse

@@ -128,13 +128,13 @@ for `NullLogger<T>` used to silence LLamaSharp's own logging). The HTTP layer ad
 |---|---|
 | `LlmHttpServer` | `HttpListener` accept loop; spawns a `Task` per request → `RequestRouter`; owns `IDisposable` teardown order |
 | `RequestRouter` | Routes by path+method to OpenAI and `/eca/*` handlers; validates `X-Client-Id`; builds prompts/`InferenceParams`; runs stateless inference for session-less requests |
-| `SseStreamer` | Stateless helper: `StreamAsync` (chat SSE chunks + `[DONE]`), `StreamCompletionAsync` (completion SSE chunks), `WriteJsonAsync`, `WriteTextAsync`, `ReadJsonAsync<T>` |
+| `SseStreamer` | Stateless helper: `StreamAsync` (chat SSE chunks + `[DONE]`), `StreamCompletionAsync` (completion SSE chunks), `WriteJsonAsync`, `ReadJsonAsync<T>` |
 
 ### Root / Config
 
 | Component | Purpose |
 |---|---|
-| `Program.cs` | Composition root: parse `[--port <N>] [path-to-llm-server.json]`, `LlmServerConfig.TryLoad`, apply CLI port override (after load, before start, logged), build logger, wire Engine+Server, handle Ctrl+C / ProcessExit, `RunAsync`, dispose |
+| `Program.cs` | Composition root: parse `[--root <dir>] [--port <N>] [path-to-llm-server.json]`, root-only model path resolution (`{root}/{path}` or `{root}/models/{filename}`; absolute paths outside root → fail), `LlmServerConfig.TryLoad`, apply CLI port override (after load, before start, logged), build logger, wire Engine+Server, handle Ctrl+C / ProcessExit, `RunAsync`, dispose |
 | `ILogger` / `LogLevel` / `ServerLogger` | Single logging abstraction (console + file, thread-safe via lock); the only internal interface |
 | `LlmServerConfig` | Root config loader: `Load`/`TryLoad` + `Validate` (port range, ≥1 model, unique ids, non-empty id/path); shared `JsonOptions` |
 | `ServerSection` / `ModelConfig` / `InferenceDefaults` / `LoggingSection` | JSON section models (mutable, deserialized) |
@@ -149,7 +149,7 @@ All requests that touch a session carry an `X-Client-Id` header. JSON is camelCa
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/v1/chat/completions` | Chat completion, streaming (SSE) + non-streaming; routes to a session via `session_id` or runs stateless |
-| POST | `/v1/completions` | Text completion, streaming (SSE) + non-streaming; routes to a session via `session_id` or runs stateless; supports `echo`, `stop`, custom params |
+| POST | `/v1/completions` | Text completion, streaming (SSE) + non-streaming; routes to a session via `session_id` or runs stateless; supports `stop`, custom params |
 | POST | `/v1/embeddings` | Generate embeddings via the embedding model's `LLamaEmbedder` |
 | GET | `/v1/models` | List loaded models (OpenAI shape: `object:"list"`, `owned_by:"ecassistant"`, `loaded`, `is_embedding`) |
 
@@ -246,7 +246,7 @@ Section semantics:
 
 ## Lifecycle
 
-1. **Startup** — `Program.cs` parses `[--port <N>] [path-to-llm-server.json]`, resolves the config path (arg → exe dir → CWD), `LlmServerConfig.TryLoad` + `Validate`, applies the `--port` override to `server.port` (after load, before start, logged), builds `ServerLogger`, constructs `MultiModelHost`/`InferenceScheduler`/`VramBudget` → `LoadAll()`, then `SessionRegistry`, `ClientManager`, `LlmHttpServer`.
+1. **Startup** — `Program.cs` parses `[--root <dir>] [--port <N>] [path-to-llm-server.json]`, resolves the root (arg required when launched by Core; standalone falls back to CWD), resolves the config path (explicit arg → `{root}/llm-server.json`; default generated ONLY for standalone runs with no args), `LlmServerConfig.TryLoad` + `Validate`, applies the `--port` override to `server.port` (after load, before start, logged), builds `ServerLogger`, constructs `MultiModelHost`/`InferenceScheduler`/`VramBudget` → `LoadAll()` (all model paths resolved strictly inside `--root`; absolute paths outside root → fail), then `SessionRegistry`, `ClientManager`, `LlmHttpServer`.
 2. **Model loading** — `MultiModelHost.LoadAll()` creates a `ModelSlot` per config and calls `Load()` (loads `LLamaWeights`, and for embedding models a `LLamaEmbedder` + a probe call to determine `EmbeddingDim`). A load failure is fatal at startup.
 3. **Server run** — `LlmHttpServer.RunAsync` starts the listener and accepts a `Task` per request; each is dispatched to `RequestRouter.RouteAsync`.
 4. **Client connect** — Core `POST /eca/clients` → UUID `client_id`; client starts a heartbeat timer.
@@ -272,6 +272,7 @@ Section semantics:
 - **Resource discipline:** `IDisposable` on every resource-owning type; disposal order in
   `LlmHttpServer.Dispose` is clients → sessions → models.
 - **GPU/threads/batch_size are server-side** — configured in `llm-server.json`, not in Core.
+- **Core-owned config (v12.11):** when launched by Core, the config path is always passed explicitly and the file is guaranteed by Core's `ServerConfigWriter.EnsureServerConfig` (wizard selections, root-contained paths). Default generation applies only to standalone runs without a config argument. Relative model paths resolve only as `{root}/{path}` or `{root}/models/{filename}`.
 - **No HTTP framework** — `System.Net.HttpListener` + `System.Text.Json` only; the sole
   external dependency is LLamaSharp.
 - **Error hardening:** `LlmHttpServer` catches `JsonException` → 400 (invalid JSON body),

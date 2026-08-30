@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-29T22:01:49.832106+00:00
-Packages: 2  |  Types: 121
+Generated: 2026-08-30T15:41:32.279955+00:00
+Packages: 2  |  Types: 117
 
 ---
 
-## ECAssistantLLM (90 types, ~5810 LOC)
+## ECAssistantLLM (87 types, ~5735 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -58,18 +58,15 @@ Packages: 2  |  Types: 121
 - 🟡 ModelLoadTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ModelPathPolicyTests  (ECAssistantLLM)
 - 🟡 ModelPathRestrictionTests : IDisposable  (ECAssistantLLM)
-- 🟡 ModelSlot : IDisposable  (ECAssistantLLM)  deps: [string, ModelConfig, ILogger]
+- 🟡 ModelSlot : IDisposable  (ECAssistantLLM)  deps: [string, ModelConfig, ILogger, string]
 - 🟡 ModelsTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 MtmdMarkerResolver  (ECAssistantLLM)
-- 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger]
+- 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger, string]
 - 🟡 PrefillRequest  (ECAssistantLLM)
 - 🟡 PrefillResponse  (ECAssistantLLM)
-- 🟡 PrefixMath  (ECAssistantLLM)
-- 🟡 PrefixMathTests  (ECAssistantLLM)
 - 🟡 PromptCacheSession : IDisposable  (ECAssistantLLM)  deps: [string, LLamaWeights, ModelParams, ILogger]
 - 🟡 PromptCacheSessionManager : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, ILogger]
 - 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource]
-- 🟡 RewindRequest  (ECAssistantLLM)
 - 🟡 RewindResponse  (ECAssistantLLM)
 - 🟡 RouteMethodTests  (ECAssistantLLM)
 - 🟡 RoutingTests  (ECAssistantLLM)  deps: [TestServerFixture]
@@ -98,7 +95,7 @@ Packages: 2  |  Types: 121
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 
-## Tests (31 types, ~2853 LOC)
+## Tests (30 types, ~2810 LOC)
 
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ChatMessageContentConverterTests  (Tests)
@@ -116,7 +113,6 @@ Packages: 2  |  Types: 121
 - 🟡 ModelPathPolicyTests  (Tests)
 - 🟡 ModelPathRestrictionTests : IDisposable  (Tests)
 - 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
-- 🟡 PrefixMathTests  (Tests)
 - 🟡 RouteMethodTests  (Tests)
 - 🟡 RoutingTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SecurityHarness : IDisposable  (Tests)

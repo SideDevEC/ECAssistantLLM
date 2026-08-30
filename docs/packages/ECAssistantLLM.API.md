@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 90  |  LOC: 5810  |  ~3666 tokens
+Types: 87  |  LOC: 5735  |  ~3587 tokens
 
 ---
 
@@ -13,7 +13,6 @@ Methods:
   - bool Heartbeat(string clientId, int activeSessions)
   - bool Disconnect(string clientId)
   - bool IsValid(string clientId)
-  - IReadOnlyList<ClientInfo> ListClients()
   - void Dispose()
 Cross-package deps: ECAssistant.LLM.Engine
 
@@ -223,7 +222,7 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 > One loaded model: weights + params + status.
 Implements: IDisposable
 Constructor:
-  - ModelSlot(string id, ModelConfig config, ILogger logger)
+  - ModelSlot(string id, ModelConfig config, ILogger logger, string rootDir)
 Cross-package deps: LLama, LLama.Common, LLama.Native, ECAssistant.LLM.Config
 
 ### Class: ModelsTests
@@ -240,7 +239,7 @@ Cross-package deps: LLama
 > Manages multiple loaded models (at least 2: main + embeddings).
 Implements: IDisposable
 Constructor:
-  - MultiModelHost(LlmServerConfig config, ILogger logger)
+  - MultiModelHost(LlmServerConfig config, ILogger logger, string rootDir)
 Cross-package deps: LLama, ECAssistant.LLM.Config
 
 ### Class: PrefillRequest
@@ -248,14 +247,6 @@ Cross-package deps: LLama, ECAssistant.LLM.Config
 
 ### Class: PrefillResponse
 > Generic API error response.
-
-### Class: PrefixMath
-> Pure helpers for prompt-cache bookkeeping.
-Cross-package deps: LLama.Native
-
-### Class: PrefixMathTests
-> Pure-math tests for prompt-cache common-prefix bookkeeping.
-Cross-package deps: LLama.Native, ECAssistant.LLM.Engine
 
 ### Class: PromptCacheSession
 > Persistent prompt-cache session reusing warm KV state across stateless/background calls
@@ -277,9 +268,6 @@ Implements: IRequestRouter
 Constructor:
   - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts)
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models
-
-### Class: RewindRequest
-> Generic API error response.
 
 ### Class: RewindResponse
 > Generic API error response.

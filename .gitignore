@@ -4,3 +4,4 @@ obj/
 *.gguf
 models/
 !Models/
+TestResults/

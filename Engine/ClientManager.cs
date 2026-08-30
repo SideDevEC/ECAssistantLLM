@@ -99,16 +99,6 @@ public sealed class ClientManager : IClientManager, IDisposable
         return _clients.ContainsKey(clientId);
     }
 
-    /// <summary>
-    /// List all clients.
-    /// </summary>
-    public IReadOnlyList<ClientInfo> ListClients()
-    {
-        return _clients.Values.Select(r => new ClientInfo(
-            r.Id, r.Name, r.Version, r.RegisteredAt, r.LastHeartbeat, r.ActiveSessions
-        )).ToList();
-    }
-
     private void EvictStaleClients(object? state)
     {
         var cutoff = DateTime.UtcNow.AddSeconds(-_heartbeatTimeoutSec);

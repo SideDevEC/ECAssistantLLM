@@ -30,12 +30,21 @@ if (string.IsNullOrEmpty(rootDir))
 Directory.CreateDirectory(rootDir);
 
 // ── Resolve config path ──
+var configExplicit = configPath != null;
 if (string.IsNullOrEmpty(configPath))
     configPath = Path.Combine(rootDir, "llm-server.json");
 
-// ── Generate default config if missing ──
+// ── Generate default config only for STANDALONE runs (no explicit config path) ──
+// When launched with an explicit path (e.g. by ECAssistantCore), the caller owns the
+// config — a missing file is an error, never a reason to invent defaults.
 if (!File.Exists(configPath))
 {
+    if (configExplicit)
+    {
+        Console.Error.WriteLine($"ERROR: Config file passed on the command line does not exist: {configPath}");
+        Console.Error.WriteLine($"The calling application (ECAssistantCore) must write llm-server.json before launch.");
+        return 1;
+    }
     var defaultConfig = LlmServerConfig.GenerateDefault();
     LlmServerConfig.Save(defaultConfig, configPath);
     Console.WriteLine($"[ECAssistantLLM] Generated default config: {configPath}");
@@ -81,30 +90,27 @@ logger.Info("Main", $"Models configured: {config.Models.Count}");
 logger.Info("Main", $"Shutdown on last client: {config.Server.ShutdownOnLastClient}");
 
 // ── Resolve model paths relative to root directory ──
-// The LLM server resolves model paths from {rootDir}/models/ or absolute paths
+// ROOT-ONLY contract (v12.11): relative paths resolve ONLY as {rootDir}/{path} or
+// {rootDir}/models/{filename}. No exe-dir / CWD fallback — paths outside the root
+// are rejected at load time (ModelSlot).
 foreach (var model in config.Models)
 {
     if (!Path.IsPathRooted(model.Path))
     {
-        var resolved = Path.Combine(rootDir, model.Path);
-        if (File.Exists(resolved))
+        var fileName = Path.GetFileName(model.Path);
+        var candidates = new[]
         {
-            model.Path = resolved;
-        }
-        else
-        {
-            // Also try {rootDir}/models/{filename}
-            var inModelsDir = Path.Combine(rootDir, "models", Path.GetFileName(model.Path));
-            if (File.Exists(inModelsDir))
-                model.Path = inModelsDir;
-            // v12.9: no dev-environment fallbacks — relative paths resolve strictly against the root.
-        }
+            Path.Combine(rootDir, model.Path),
+            Path.Combine(rootDir, "models", fileName)
+        };
+        model.Path = candidates.FirstOrDefault(File.Exists) ?? model.Path;
+        // No dev-environment fallbacks beyond the candidates above.
     }
     logger.Info("Main", $"  Model '{model.Id}': {model.Path}");
 }
 
 // ── Initialize components ──
-var modelHost = new MultiModelHost(config, logger);
+var modelHost = new MultiModelHost(config, logger, rootDir);
 var scheduler = new InferenceScheduler(logger);
 var vramBudget = new VramBudget(config);
 

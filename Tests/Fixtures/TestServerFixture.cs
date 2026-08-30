@@ -66,7 +66,7 @@ public sealed class TestServerFixture : IAsyncLifetime
               Path.Combine(AppContext.BaseDirectory, "ecassistant-llm-test.log"));
           logger.DisableConsole();
 
-          var modelHost = new MultiModelHost(config, logger);
+          var modelHost = new MultiModelHost(config, logger, AppContext.BaseDirectory);
           var scheduler = new InferenceScheduler(logger);
           var vramBudget = new VramBudget(config);
 

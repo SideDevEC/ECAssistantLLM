@@ -111,7 +111,7 @@ public sealed class LlmServerConfig
                 new ModelConfig
                 {
                     Id = "embeddings",
-                    Path = "models/all-MiniLM-L6-v2-q5_k_m.gguf",
+                    Path = "models/all-MiniLM-L6-v2-Q5_K_M.gguf",
                     GpuLayers = 0,
                     ContextSize = 2048,
                     Threads = -1,
