@@ -438,6 +438,8 @@ public sealed class RequestRouter : IRequestRouter
             sessions = _sessions.Count,
             clients = _clients.ClientCount,
             vision = _models.LoadedModelIds.Select(id => _models.TryGetSlot(id)).Any(s => s?.SupportsVision == true),
+            // v13c capability advertisement — clients negotiate features at connect.
+            capabilities = new[] { "eca-extensions", "structured-decoding" },
             uptime_sec = (int)(DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds
         };
         await SseStreamer.WriteJsonAsync(ctx.Response, response);
