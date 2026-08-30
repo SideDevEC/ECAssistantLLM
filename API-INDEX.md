@@ -1,6 +1,6 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-30T20:04:00.634264+00:00
+Generated: 2026-08-30T20:16:19.202300+00:00
 Packages: 2  |  Types: 124
 
 ---
