@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 30  |  LOC: 2810  |  ~1440 tokens
+Types: 31  |  LOC: 2852  |  ~1472 tokens
 
 ---
 
@@ -134,6 +134,10 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > SSE framing tests over a real loopback HttpListener — no model weights involved.
 Implements: IDisposable
 Cross-package deps: ECAssistant.LLM.Server
+
+### Class: StructuredDecoderTests
+> v13 structured decision envelope decoding.
+Cross-package deps: ECAssistant.LLM.Engine, Xunit
 
 ### Class: TestServerFixture
 > Shared integration-test fixture. Starts the real ECAssistantLLM HTTP server

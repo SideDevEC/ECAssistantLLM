@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-08-30T19:16:08.525375+00:00
-Packages: 2  |  Types: 117
+Generated: 2026-08-30T19:57:26.018501+00:00
+Packages: 2  |  Types: 124
 
 ---
 
-## ECAssistantLLM (87 types, ~5735 LOC)
+## ECAssistantLLM (93 types, ~5898 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -32,6 +32,9 @@ Packages: 2  |  Types: 117
 - 🟡 CompletionResponse  (ECAssistantLLM)
 - 🟡 ConcurrentRequestTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 CreateSessionRequest  (ECAssistantLLM)
+- 🟡 DecisionEnvelope  (ECAssistantLLM)
+- 🟡 DecisionGrammar  (ECAssistantLLM)
+- 🟡 DecisionToolCall  (ECAssistantLLM)
 - 🟡 EmbeddingData  (ECAssistantLLM)
 - 🟡 EmbeddingRequest  (ECAssistantLLM)
 - 🟡 EmbeddingResponse  (ECAssistantLLM)
@@ -45,6 +48,7 @@ Packages: 2  |  Types: 117
 - 🟡 HeartbeatTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 InferenceDefaults  (ECAssistantLLM)
 - 🟡 InferenceScheduler : IInferenceScheduler  (ECAssistantLLM)  deps: [ILogger]
+- 🟡 InvalidDecisionException : Exception  (ECAssistantLLM)  deps: [string]
 - 🟡 KvCacheTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =]
 - 🟡 LlmServerConfig  (ECAssistantLLM)
@@ -82,6 +86,8 @@ Packages: 2  |  Types: 117
 - 🟡 ShutdownTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SseStreamer  (ECAssistantLLM)
 - 🟡 SseStreamerTests : IDisposable  (ECAssistantLLM)
+- 🟡 StructuredDecoder  (ECAssistantLLM)
+- 🟡 StructuredDecoderTests  (ECAssistantLLM)
 - 🟡 SuccessResponse  (ECAssistantLLM)
 - 🟡 TestServerFixture : IAsyncLifetime  (ECAssistantLLM)
 - 🟡 ThinkFilter  (ECAssistantLLM)
@@ -95,7 +101,7 @@ Packages: 2  |  Types: 117
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 
-## Tests (30 types, ~2810 LOC)
+## Tests (31 types, ~2852 LOC)
 
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ChatMessageContentConverterTests  (Tests)
@@ -121,6 +127,7 @@ Packages: 2  |  Types: 117
 - 🟡 SessionLifecycleTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SseStreamerTests : IDisposable  (Tests)
+- 🟡 StructuredDecoderTests  (Tests)
 - 🟡 TestServerFixture : IAsyncLifetime  (Tests)
 - 🟡 ThinkFilterTests  (Tests)
 - 🟡 TokenizeTests  (Tests)  deps: [TestServerFixture]

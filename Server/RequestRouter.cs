@@ -203,6 +203,37 @@ public sealed class RequestRouter : IRequestRouter
 
         await using var slot = await _scheduler.AcquireAsync(ct);
 
+        // v13 structured mode: grammar-forced decision envelope, parsed server-side.
+        // Always non-streamed — the client gets one JSON document with the decision.
+        if (req.Structured)
+        {
+            var structuredParams = CreateStructuredInferenceParams(req);
+            var structuredSb = new StringBuilder();
+            if (session != null)
+            {
+                await foreach (var token in session.InferAsync(prompt, structuredParams, ct, images))
+                    structuredSb.Append(token);
+            }
+            else
+            {
+                await foreach (var token in CreateStatelessStream(templateSlot, prompt, structuredParams, images, ct))
+                    structuredSb.Append(token);
+            }
+
+            try
+            {
+                var envelope = StructuredDecoder.Decode(structuredSb.ToString());
+                await SseStreamer.WriteJsonAsync(ctx.Response, new { decision = envelope });
+            }
+            catch (InvalidDecisionException ex)
+            {
+                _logger.Warn("Router", $"Structured decode failed: {ex.Message}");
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = $"Invalid decision envelope: {ex.Message}", Type = "invalid_decision" } }, 422);
+            }
+            return;
+        }
+
         if (req.Stream)
         {
             IAsyncEnumerable<string> tokenStream;
@@ -867,6 +898,26 @@ public sealed class RequestRouter : IRequestRouter
 
     private static LLama.Common.InferenceParams CreateInferenceParams(ChatCompletionRequest req)
         => CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, req.MaxTokens, req.Stop);
+
+    /// <summary>v13: inference params with the decision grammar injected at the sampler —
+    /// the model physically cannot emit anything but a valid decision envelope.</summary>
+    private static LLama.Common.InferenceParams CreateStructuredInferenceParams(ChatCompletionRequest req)
+    {
+        var pipe = new LLama.Sampling.DefaultSamplingPipeline
+        {
+            Temperature = req.Temperature ?? 0.3f,
+            TopP = req.TopP ?? 0.95f,
+            TopK = req.TopK ?? 40,
+            RepeatPenalty = req.RepeatPenalty ?? 1.1f,
+            Grammar = new LLama.Sampling.Grammar(DecisionGrammar.Gbnf, DecisionGrammar.Root),
+        };
+        return new LLama.Common.InferenceParams
+        {
+            MaxTokens = req.MaxTokens ?? 512,
+            AntiPrompts = req.Stop ?? new List<string>(),
+            SamplingPipeline = pipe,
+        };
+    }
 
     private static LLama.Common.InferenceParams CreateInferenceParams(CompletionRequest req)
         => CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, req.MaxTokens, req.Stop);

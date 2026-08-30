@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 87  |  LOC: 5735  |  ~3587 tokens
+Types: 93  |  LOC: 5898  |  ~3786 tokens
 
 ---
 
@@ -112,6 +112,15 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 ### Class: CreateSessionRequest
 > Generic API error response.
 
+### Class: DecisionEnvelope
+> v13 structured decision envelope — the grammar-forced output shape.
+
+### Class: DecisionGrammar
+> v13 GBNF grammar that forces the model's output into the decision envelope
+
+### Class: DecisionToolCall
+> v13 structured decision envelope — the grammar-forced output shape.
+
 ### Class: EmbeddingData
 
 ### Class: EmbeddingRequest
@@ -163,6 +172,13 @@ Implements: IInferenceScheduler
 Constructor:
   - InferenceScheduler(ILogger logger)
 Cross-package deps: ECAssistant.LLM.Interfaces
+
+### Class: InvalidDecisionException
+> v13 Parses the grammar-forced decision envelope into a typed DTO.
+Implements: Exception
+Constructor:
+  - InvalidDecisionException(string message)
+Cross-package deps: ECAssistant.LLM.Models
 
 ### Class: KvCacheTests
 > Tests for KV-cache operations: prefill, save-state, rewind, reset, and the
@@ -341,6 +357,14 @@ Cross-package deps: ECAssistant.LLM.Models
 > SSE framing tests over a real loopback HttpListener — no model weights involved.
 Implements: IDisposable
 Cross-package deps: ECAssistant.LLM.Server
+
+### Class: StructuredDecoder
+> v13 Parses the grammar-forced decision envelope into a typed DTO.
+Cross-package deps: ECAssistant.LLM.Models
+
+### Class: StructuredDecoderTests
+> v13 structured decision envelope decoding.
+Cross-package deps: ECAssistant.LLM.Engine, Xunit
 
 ### Class: SuccessResponse
 > Generic API error response.
