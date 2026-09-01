@@ -27,7 +27,9 @@ public sealed class VramBudget
         get
         {
             if (!_config.Server.MaxVramMb.HasValue) return false;
-            lock (_lock) { return _currentUsageMb >= _config.Server.MaxVramMb.Value; }
+            // Boundary semantics match TryReserve: only strictly over budget counts as
+            // exceeded (usage == budget is still acceptable, same as TryReserve's `>`).
+            lock (_lock) { return _currentUsageMb > _config.Server.MaxVramMb.Value; }
         }
     }
 

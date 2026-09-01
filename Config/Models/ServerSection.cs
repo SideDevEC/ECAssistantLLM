@@ -11,7 +11,10 @@ public sealed class ServerSection
     public string Host { get; set; } = "localhost";
 
     [JsonPropertyName("port")]
-    public int Port { get; set; } = 58777;
+    public int Port { get; set; } = 8420;
+    // ^ 8420 matches LlmServerConfig.GenerateDefault() — the two defaults must stay
+    // aligned (GenerateDefault writes this section; a divergence here would make a
+    // freshly generated config disagree with a hand-written one).
 
     [JsonPropertyName("max_sessions")]
     public int MaxSessions { get; set; } = 8;
@@ -45,7 +48,7 @@ public sealed class ServerSection
     public string? ModelsRoot { get; set; }
 
     /// <summary>
-    /// Base URL for HttpListener prefix. e.g. http://localhost:58777/
+    /// Base URL for HttpListener prefix. e.g. http://localhost:8420/
     /// </summary>
     [JsonIgnore]
     public string Prefix => $"http://{Host}:{Port}/";

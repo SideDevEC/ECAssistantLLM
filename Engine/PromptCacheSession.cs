@@ -95,36 +95,48 @@ public sealed class PromptCacheSession : IDisposable
         var executor = new InteractiveExecutor(
             context,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<LLamaContext>.Instance);
-        oldContext?.Dispose();
-        _context = context;
 
         await _ioLock.WaitAsync(ct);
         try
         {
+            // Context swap must happen under the same lock that serializes KV state:
+            // doing it before acquisition let a concurrent InferAsync observe a torn
+            // state (old context disposed while another request was still restoring).
+            oldContext?.Dispose();
+            _context = context;
+
+            // Snapshot template/last-prompt state under the lock —
+            // LearnTemplateCheckpointAsync runs outside the lock and may swap these
+            // concurrently; the restore below must use one consistent set.
+            var lastState = _lastState;
+            var lastPromptText = _lastPromptText;
+            var templateState = _templateState;
+            var templateText = _templateText;
+
             bool resumed = false;
             string effective = prompt;
 
-            if (!string.IsNullOrEmpty(_lastPromptText) &&
-                _lastState != null &&
-                prompt.StartsWith(_lastPromptText, StringComparison.Ordinal))
+            if (!string.IsNullOrEmpty(lastPromptText) &&
+                lastState != null &&
+                prompt.StartsWith(lastPromptText, StringComparison.Ordinal))
             {
-                await executor.LoadState(_lastState);
-                effective = prompt[_lastPromptText.Length..];
+                await executor.LoadState(lastState);
+                effective = prompt[lastPromptText.Length..];
                 resumed = true;
                 CacheHits++;
-                _logger.Info("PromptCache", $"[{ModelId}] Growth reuse ({_lastPromptText.Length} chars cached) — decoding suffix ({effective.Length} chars)");
+                _logger.Info("PromptCache", $"[{ModelId}] Growth reuse ({lastPromptText.Length} chars cached) — decoding suffix ({effective.Length} chars)");
             }
-            else if (_templateState != null &&
-                     _templateText.Length >= MinCheckpointChars &&
+            else if (templateState != null &&
+                     templateText.Length >= MinCheckpointChars &&
                      _templateReuseCount < MaxConsecutiveReuses &&
-                     prompt.StartsWith(_templateText, StringComparison.Ordinal))
+                     prompt.StartsWith(templateText, StringComparison.Ordinal))
             {
-                await executor.LoadState(_templateState);
-                effective = prompt[_templateText.Length..];
+                await executor.LoadState(templateState);
+                effective = prompt[templateText.Length..];
                 resumed = true;
                 CacheHits++;
                 _templateReuseCount++;
-                _logger.Info("PromptCache", $"[{ModelId}] Template reuse #{_templateReuseCount} ({_templateText.Length}-char header cached) — decoding payload ({effective.Length} chars)");
+                _logger.Info("PromptCache", $"[{ModelId}] Template reuse #{_templateReuseCount} ({templateText.Length}-char header cached) — decoding payload ({effective.Length} chars)");
             }
 
             if (!resumed)

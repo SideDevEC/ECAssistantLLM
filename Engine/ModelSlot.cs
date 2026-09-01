@@ -43,9 +43,29 @@ public sealed class ModelSlot : IDisposable
     /// <summary>
     /// Loaded MTMD (mmproj) projector for vision models. null until first use
     /// or when no mmproj_path is configured. Lazy: loaded on first vision request.
+    /// Thread-safe: init is locked; a failed load is latched in _mmprojFailed so a
+    /// broken mmproj is not retried on every request (per-model reset on Unload).
     /// </summary>
-    public MtmdWeights? Mmproj => _mmproj ??= TryLoadMmproj();
+    public MtmdWeights? Mmproj
+    {
+        get
+        {
+            if (_mmproj != null) return _mmproj;
+            if (_mmprojFailed) return null;
+            lock (_mmprojGate)
+            {
+                if (_mmproj != null) return _mmproj;
+                if (_mmprojFailed) return null;
+                _mmproj = TryLoadMmproj();
+                if (_mmproj == null)
+                    _mmprojFailed = true; // sentinel: don't retry a known-bad load forever
+                return _mmproj;
+            }
+        }
+    }
     private MtmdWeights? _mmproj;
+    private volatile bool _mmprojFailed;
+    private readonly object _mmprojGate = new();
 
     /// <summary>True when this model accepts image input (mmproj configured).</summary>
     public bool SupportsVision => Config.SupportsVision;
@@ -107,6 +127,8 @@ public sealed class ModelSlot : IDisposable
         Embedder = null;
         _mmproj?.Dispose();
         _mmproj = null;
+        // Allow a retry after the slot is re-loaded (e.g. mmproj file fixed on disk).
+        _mmprojFailed = false;
         Weights?.Dispose();
         Weights = null;
         _logger.Info("ModelSlot", $"Unloaded model '{Id}'");
@@ -146,7 +168,9 @@ public sealed class ModelSlot : IDisposable
 
         if (config.IsEmbedding)
         {
-            mp.PoolingType = config.PoolingType.ToLower() switch
+            // Invariant culture: config values must not be reshaped by the OS locale
+            // (e.g. Turkish 'I' would break the mean/cls/last matches below).
+            mp.PoolingType = config.PoolingType.ToLowerInvariant() switch
             {
                 "mean" => LLamaPoolingType.Mean,
                 "cls" => LLamaPoolingType.CLS,

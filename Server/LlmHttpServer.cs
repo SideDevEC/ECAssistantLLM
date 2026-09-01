@@ -90,14 +90,19 @@ public sealed class LlmHttpServer : IDisposable
                 break; // listener stopped or disposed
             }
 
-            // Cap concurrent request tasks — blocks the accept loop when saturated.
-            await _requestGate.WaitAsync(runCts.Token);
-
-            // Handle each request on a background task
+            // Cap concurrent request tasks — pending tasks queue on the gate INSIDE the
+            // task body. Acquiring inside Task.Run (not before it) prevents a cancelled
+            // task (token already fired) from leaking a semaphore slot: Task.Run with a
+            // cancelled token skips the delegate entirely, so a release-before-acquire
+            // pair spanning that boundary would never release what it acquired.
             _ = Task.Run(async () =>
             {
+                var gateAcquired = false;
                 try
                 {
+                    await _requestGate.WaitAsync(runCts.Token);
+                    gateAcquired = true;
+
                     await _router.RouteAsync(ctx, _cts.Token);
                 }
                 catch (System.Text.Json.JsonException)
@@ -126,7 +131,9 @@ public sealed class LlmHttpServer : IDisposable
                 }
                 finally
                 {
-                    _requestGate.Release();
+                    // Release only what was actually acquired — never a slot we don't hold.
+                    if (gateAcquired)
+                        _requestGate.Release();
                     try { ctx.Response.Close(); } catch { }
                 }
             }, _cts.Token);
@@ -161,7 +168,10 @@ public sealed class LlmHttpServer : IDisposable
         // stopping left the accept-loop thread blocked forever → xunit could
         // never finish disposing collection fixtures ("Test Run Aborted").
         try { _listener.Stop(); } catch { }
-        _cts?.Cancel();
+        // Guarded cancel: the router may be cancelling this same CTS concurrently in
+        // HandleShutdownAsync — Cancel on an already-disposed CTS must not crash Dispose.
+        try { _cts?.Cancel(); }
+        catch (ObjectDisposedException) { /* router already cancelled+disposed it */ }
         _cts?.Dispose();
 
         _clientManager?.Dispose();

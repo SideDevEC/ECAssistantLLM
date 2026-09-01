@@ -50,6 +50,9 @@ public sealed class ServerLogger : ILogger
 
             if (_logFile != null)
             {
+                // Per-line File.AppendAllText (open/write/close per line) is BY DESIGN:
+                // the log survives a hard crash/OOM-kill because no buffered writer
+                // handle is ever left open. Cost is acceptable at server log volumes.
                 try { File.AppendAllText(_logFile, line + Environment.NewLine); }
                 catch { /* file logging is best-effort */ }
             }

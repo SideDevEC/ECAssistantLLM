@@ -111,12 +111,25 @@ public static class SseStreamer
         {
             // Client disconnected or cancelled — normal
         }
+        catch (HttpListenerException)
+        {
+            // Client disconnected mid-stream — the stream is dead. Do NOT attempt to
+            // write an error event to it (would just throw again); drop silently.
+        }
         catch (Exception ex)
         {
-            // Send error as SSE event
-            var errorJson = JsonSerializer.Serialize(new { error = new { message = ex.Message, type = "stream_error" } });
-            await writer.WriteLineAsync($"data: {errorJson}");
-            await writer.WriteLineAsync();
+            // Send error as SSE event — but the stream may have died mid-iteration,
+            // so guard the write itself.
+            try
+            {
+                var errorJson = JsonSerializer.Serialize(new { error = new { message = ex.Message, type = "stream_error" } });
+                await writer.WriteLineAsync($"data: {errorJson}");
+                await writer.WriteLineAsync();
+            }
+            catch
+            {
+                // Stream already dead (client disconnect) — nothing to report to.
+            }
         }
     }
 

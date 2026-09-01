@@ -12,8 +12,16 @@ for (int i = 0; i < args.Length; i++)
 {
     if (args[i] == "--root" && i + 1 < args.Length)
         rootDir = args[++i];
-    else if (args[i] == "--port" && i + 1 < args.Length && int.TryParse(args[++i], out var p))
-        portOverride = p;
+    else if (args[i] == "--port" && i + 1 < args.Length)
+    {
+        // Parse into a local WITHOUT consuming the next arg on failure — a
+        // non-numeric value after --port may itself be a positional config path.
+        if (int.TryParse(args[i + 1], out var p))
+        {
+            portOverride = p;
+            i++;
+        }
+    }
     else if (!args[i].StartsWith("--"))
         configPath = args[i];
 }
@@ -60,7 +68,8 @@ if (config == null)
 }
 
 // ── Setup logger ──
-var logLevel = config.Logging.Level.ToLower() switch
+// Invariant culture: log-level config values must not be reshaped by the OS locale.
+var logLevel = config.Logging.Level.ToLowerInvariant() switch
 {
     "debug" => LogLevel.Debug,
     "warn" => LogLevel.Warn,

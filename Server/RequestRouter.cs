@@ -29,6 +29,11 @@ public sealed class RequestRouter : IRequestRouter
     /// state on Qwen3.6-35B-A3B (hybrid arch), causing progressively degraded outputs on
     /// repeated restores. Plain-attention models (Qwen3-8B) verified OK. Re-enable once a
     /// snapshot-faithful path is confirmed.
+    ///
+    /// ⚠ DEAD CODE at runtime: while this stays false, PromptCacheSession /
+    /// PromptCacheSessionManager are unreachable from live traffic. Treat both as
+    /// VOLATILE/experimental — do not build production guarantees on them, and
+    /// re-verify snapshot fidelity before flipping this flag on.
     /// </summary>
     public static bool EnableWarmPromptCache { get; set; } = false;
 
@@ -103,6 +108,11 @@ public sealed class RequestRouter : IRequestRouter
 
         // ── ECAssistant extension endpoints ──
 
+        // Cross-client authorization: management actions scoped to a client id in the
+        // PATH may only be performed by that same client (X-Client-Id header).
+        // Without this, registered client A could heartbeat/disconnect client B.
+        // /eca/shutdown has no path id — the acting identity IS the validated header.
+
         // Health
         if (path == "/eca/health" && method == "GET")
         { await HandleHealthAsync(ctx); return; }
@@ -112,10 +122,30 @@ public sealed class RequestRouter : IRequestRouter
         { await HandleRegisterClientAsync(ctx); return; }
 
         if (path.StartsWith("/eca/clients/") && path.EndsWith("/heartbeat") && method == "POST")
-        { await HandleHeartbeatAsync(ctx, ExtractClientIdFromPath(path)); return; }
+        {
+            var pathClientId = ExtractClientIdFromPath(path);
+            if (!MatchesHeaderClient(pathClientId, clientId))
+            {
+                await SseStreamer.WriteJsonAsync(res,
+                    new ErrorResponse { Error = new() { Message = "X-Client-Id header does not match the client in the request path", Type = "forbidden" } }, 403);
+                return;
+            }
+            await HandleHeartbeatAsync(ctx, pathClientId);
+            return;
+        }
 
         if (path.StartsWith("/eca/clients/") && method == "DELETE")
-        { await HandleDisconnectClientAsync(ctx, ExtractClientIdFromPath(path)); return; }
+        {
+            var pathClientId = ExtractClientIdFromPath(path);
+            if (!MatchesHeaderClient(pathClientId, clientId))
+            {
+                await SseStreamer.WriteJsonAsync(res,
+                    new ErrorResponse { Error = new() { Message = "X-Client-Id header does not match the client in the request path", Type = "forbidden" } }, 403);
+                return;
+            }
+            await HandleDisconnectClientAsync(ctx, pathClientId);
+            return;
+        }
 
         // Server shutdown (explicit request from Core)
         if (path == "/eca/shutdown" && method == "POST")
@@ -171,6 +201,15 @@ public sealed class RequestRouter : IRequestRouter
         var (req, ok) = await ReadBodyOrErrorAsync<ChatCompletionRequest>(ctx, ct);
         if (!ok) return;
 
+        // M-10: a JSON null model field deserializes to null even though the DTO
+        // default is "main" — TryGetSlot(null) would throw (500). Return 400 instead.
+        if (string.IsNullOrWhiteSpace(req.Model))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "model is required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
         var session = ResolveSession(clientId, req.SessionId);
         if (session == null && req.SessionId != null)
         {
@@ -193,7 +232,12 @@ public sealed class RequestRouter : IRequestRouter
 
         if (images.Count > 0)
         {
-            if (!templateSlot.SupportsVision)
+            // Validate vision support against the model that will actually run:
+            // with a session the tokens flow through session.ModelId's executor,
+            // not the template slot. This single check covers both the structured
+            // and the streaming/non-streaming paths below.
+            var visionSlot = session != null ? _models.TryGetSlot(session.ModelId) : templateSlot;
+            if (visionSlot == null || !visionSlot.SupportsVision)
             {
                 await SseStreamer.WriteJsonAsync(ctx.Response,
                     new ErrorResponse { Error = new() { Message = "Model does not support vision — configure mmproj_path for this model.", Type = "invalid_request" } }, 400);
@@ -292,6 +336,14 @@ public sealed class RequestRouter : IRequestRouter
         var (req, ok) = await ReadBodyOrErrorAsync<CompletionRequest>(ctx, ct);
         if (!ok) return;
 
+        // M-10: guard null model fields — 400, not a 500 from TryGetSlot(null).
+        if (string.IsNullOrWhiteSpace(req.Model))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "model is required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
         if (string.IsNullOrEmpty(req.Prompt))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
@@ -383,7 +435,8 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var slot = _models.TryGetSlot(req.Model) ?? _models.GetEmbeddingSlot();
+        // JSON null overrides the DTO default — null-guard before TryGetSlot (M-10).
+        var slot = (req.Model != null ? _models.TryGetSlot(req.Model) : null) ?? _models.GetEmbeddingSlot();
         if (slot == null || !slot.IsEmbedding || slot.Embedder == null)
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
@@ -512,9 +565,11 @@ public sealed class RequestRouter : IRequestRouter
         if (!string.IsNullOrEmpty(clientId))
             _clients.Disconnect(clientId);
 
-        // Respond OK before shutting down
+        // Respond OK and flush it to the wire BEFORE cancelling the CTS — otherwise the
+        // listener could tear the connection down mid-write and the client never sees the ack.
         await SseStreamer.WriteJsonAsync(ctx.Response,
             new SuccessResponse { Message = "Shutting down" });
+        try { await ctx.Response.OutputStream.FlushAsync(); } catch { /* response may already be gone */ }
 
         // If no clients remain, trigger shutdown
         if (_clients.ClientCount == 0)
@@ -522,7 +577,8 @@ public sealed class RequestRouter : IRequestRouter
             _logger.Info("Router", "Last client shutdown — winding down server...");
             // Small delay to let the response flush
             await Task.Delay(100);
-            _cts.Cancel();
+            try { _cts.Cancel(); }
+            catch (ObjectDisposedException) { /* server already tearing down */ }
         }
         else
         {
@@ -667,8 +723,18 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        session.Reset();
-        await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Message = "KV cache reset" });
+        try
+        {
+            session.Reset();
+            await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Message = "KV cache reset" });
+        }
+        catch (TimeoutException tex)
+        {
+            // Reset could not acquire the IO lock within its bounded wait — an inference
+            // is still running. Not a server fault: surface as a client-retryable conflict.
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = tex.Message, Type = "session_busy" } }, 409);
+        }
     }
 
     private async Task HandleSessionStatusAsync(HttpListenerContext ctx, string? clientId, string sessionId)
@@ -777,15 +843,17 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var slot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
-        if (slot == null)
+        // JSON null overrides the DTO default — return 400 rather than a 500 from
+        // TryGetSlot(null) (M-10).
+        if (string.IsNullOrWhiteSpace(req.Model))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
+                new ErrorResponse { Error = new() { Message = "model is required", Type = "invalid_request" } }, 400);
             return;
         }
 
-        // Use LLamaSharp tokenizer via a temporary context
+        var slot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
+        if (slot == null)
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
@@ -817,9 +885,21 @@ public sealed class RequestRouter : IRequestRouter
         var fullModel = Path.GetFullPath(modelPath);
         var fullRoot = Path.GetFullPath(modelsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        return fullModel.StartsWith(fullRoot + Path.DirectorySeparatorChar)
-            || fullModel.StartsWith(fullRoot + Path.AltDirectorySeparatorChar);
+        // OrdinalIgnoreCase: match ModelSlot.ResolveModelPath, whose root-containment
+        // check is case-insensitive on case-insensitive filesystems (macOS/Windows);
+        // a case-differing path must not slip past this router-side gate.
+        return fullModel.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || fullModel.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Cross-client authorization helper: a client may only act on its own identity.
+    /// The client id in the request path must equal the validated X-Client-Id header.
+    /// </summary>
+    private static bool MatchesHeaderClient(string pathClientId, string? headerClientId)
+        => !string.IsNullOrEmpty(pathClientId)
+           && !string.IsNullOrEmpty(headerClientId)
+           && string.Equals(pathClientId, headerClientId, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Resolve the KV-cache session for a request, or null for stateless inference.
@@ -878,9 +958,14 @@ public sealed class RequestRouter : IRequestRouter
 
     private static string ExtractClientIdFromPath(string path)
     {
-        var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 3 && parts[0] == "eca" && parts[1] == "clients")
-            return parts[2];
+        // Positional split (NO empty-entry removal): '/eca/clients//heartbeat' must not
+        // yield 'heartbeat' as a client id. Malformed paths (empty segments, missing id)
+        // resolve to "" and are rejected downstream by the auth/validity checks.
+        var parts = path.Split('/');
+        if (parts.Length >= 4 &&
+            parts[0] == "" && parts[1] == "eca" && parts[2] == "clients" &&
+            !string.IsNullOrWhiteSpace(parts[3]))
+            return parts[3];
         return "";
     }
 
@@ -906,6 +991,10 @@ public sealed class RequestRouter : IRequestRouter
     private static LLama.Common.InferenceParams CreateInferenceParams(ChatCompletionRequest req)
         => CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, req.MaxTokens, req.Stop);
 
+    /// <summary>Server-side upper bound for client-supplied max_tokens. Prevents a
+    /// single request from pinning the model generating far beyond any usable answer.</summary>
+    internal const int MaxInferenceTokens = 32768;
+
     /// <summary>v13: inference params with the decision grammar injected at the sampler —
     /// the model physically cannot emit anything but a valid decision envelope.</summary>
     private static LLama.Common.InferenceParams CreateStructuredInferenceParams(ChatCompletionRequest req)
@@ -923,7 +1012,7 @@ public sealed class RequestRouter : IRequestRouter
         // truncating the envelope mid-document.
         return new LLama.Common.InferenceParams
         {
-            MaxTokens = req.MaxTokens ?? 512,
+            MaxTokens = Math.Clamp(req.MaxTokens ?? 512, 1, MaxInferenceTokens),
             SamplingPipeline = pipe,
         };
     }
@@ -950,7 +1039,8 @@ public sealed class RequestRouter : IRequestRouter
 
         return new LLama.Common.InferenceParams
         {
-            MaxTokens = maxTokens ?? 512,
+            // Server-side clamp: rejects runaway/zero/negative client values.
+            MaxTokens = Math.Clamp(maxTokens ?? 512, 1, MaxInferenceTokens),
             AntiPrompts = stop?.ToArray() ?? new[] { "</s>", "User:", "### User" },
             OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
             SamplingPipeline = pipe
@@ -984,9 +1074,9 @@ public sealed class RequestRouter : IRequestRouter
     {
         var mtmd = slot.Mmproj ?? throw new InvalidOperationException("mmproj not loaded for vision request");
         using var context = slot.Weights!.CreateContext(slot.Params);
-        var executor = mtmd != null
-            ? new LLama.InteractiveExecutor(context, mtmd, Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.LLamaContext>.Instance)
-            : new LLama.InteractiveExecutor(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.LLamaContext>.Instance);
+        // mtmd is non-null here (guaranteed by the throw above) — the plain-text
+        // executor branch below was dead code and has been removed.
+        var executor = new LLama.InteractiveExecutor(context, mtmd, Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.LLamaContext>.Instance);
 
         try
         {

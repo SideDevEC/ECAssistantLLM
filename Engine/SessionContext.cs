@@ -128,6 +128,11 @@ public sealed class SessionContext : IDisposable
             await foreach (var token in Executor.InferAsync(text, _inferenceParams, cts.Token))
             {
                 sb.Append(token);
+                // INTENTIONAL heuristic stop: break at the first newline — the static
+                // prefix is considered "warmed" once a full line has been produced.
+                // NOTE the quadratic cost: sb.ToString() re-scans the whole buffer per
+                // token (O(n²) over prefill length). Accepted by design: prefill is
+                // bounded by the 120s cts below and token counts are modest.
                 if (sb.ToString().Contains('\n'))
                     break;
             }
@@ -145,6 +150,9 @@ public sealed class SessionContext : IDisposable
 
         var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
         IsPrefilled = true;
+        // APPROXIMATE accounting (documented): text.Length/4 chars-per-token is a rough
+        // estimate, not an exact tokenizer count. It feeds VRAM budgeting and eviction
+        // heuristics only — never generation correctness.
         ApproxTokenCount = EstimateTokenCount(text);
 
         _logger.Info("SessionContext", $"[{Key}] Prefilled {ApproxTokenCount} tokens in {elapsedMs}ms");
@@ -201,13 +209,22 @@ public sealed class SessionContext : IDisposable
         }
     }
 
+    /// <summary>How long Reset() waits for an in-flight inference to release the IO lock
+    /// before failing fast instead of blocking the caller indefinitely.</summary>
+    private static readonly TimeSpan ResetLockTimeout = TimeSpan.FromSeconds(30);
+
     /// <summary>
     /// Reset KV cache completely (destroys context + executor, creates fresh ones).
     /// Caller must re-prefill after this.
     /// </summary>
+    /// <exception cref="TimeoutException">Thrown when an in-flight inference holds the
+    /// IO lock beyond <see cref="ResetLockTimeout"/> — bounded wait, never indefinite.</exception>
     public void Reset()
     {
-        _ioLock.Wait();
+        // Bounded lock acquisition: a wedged/hung inference must not block the
+        // management thread forever. Callers surface TimeoutException as an error.
+        if (!_ioLock.Wait(ResetLockTimeout))
+            throw new TimeoutException($"[{Key}] Reset timed out after {ResetLockTimeout.TotalSeconds}s waiting for the IO lock (inference in progress?)");
         try
         {
             var nullLog = Microsoft.Extensions.Logging.Abstractions.NullLogger<LLamaContext>.Instance;

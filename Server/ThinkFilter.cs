@@ -24,9 +24,11 @@ public static class ThinkFilter
         await foreach (var token in tokens.WithCancellation(ct))
         {
             // Special-token artifacts (EOS emitted as text, e.g. "</s>", "<|im_end|>") — never output.
+            // Narrow shape match: ONLY <|name|> control tokens and </s>-style close tags.
+            // The previous heuristic (any '<...>' containing '|') also ate legitimate
+            // prose like "<a|b>" produced by the model.
             var t = token.Trim();
-            if (t.Length > 2 && t.StartsWith('<') && t.EndsWith('>') &&
-                (t.Contains('|') || t == "</s>"))
+            if (t.Length > 2 && t.StartsWith('<') && t.EndsWith('>') && IsSpecialTokenShape(t))
                 continue;
 
             buf.Append(token);
@@ -74,6 +76,22 @@ public static class ThinkFilter
     }
 
     // Stateless utility — no mutable state.
+
+    /// <summary>
+    /// True for special-token shapes: "&lt;|tag|&gt;" (pipe-bracketed control tokens like
+    /// &lt;|im_end|&gt;) and close-tag forms "&lt;/x&gt;" / "&lt;s&gt;". Regular angle-bracket
+    /// text with pipes does NOT match unless it is exactly the bracketed form.
+    /// </summary>
+    private static bool IsSpecialTokenShape(string t)
+    {
+        if (t.StartsWith("<|") && t.EndsWith("|>"))
+        {
+            var inner = t[2..^2];
+            return inner.Length > 0 && inner.All(c => char.IsLetterOrDigit(c) || c is '_' or '.' or '-');
+        }
+        return t is "</s>" or "<s>";
+    }
+
     private static int LongestSuffixPrefix(string s, string tag)
     {
         var max = Math.Min(s.Length, tag.Length - 1);

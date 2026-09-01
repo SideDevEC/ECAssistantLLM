@@ -29,7 +29,15 @@ public sealed class InferenceScheduler : IInferenceScheduler
         Interlocked.Increment(ref _queueDepth);
         _logger.Debug("Scheduler", $"Inference queue depth: {_queueDepth}");
 
-        await _gate.WaitAsync(ct);
+        try
+        {
+            await _gate.WaitAsync(ct);
+        }
+        catch
+        {
+            Interlocked.Decrement(ref _queueDepth);
+            throw;
+        }
 
         // Keep counting this request as "in queue" until it finishes executing —
         // QueueDepth is documented as waiting + executing.

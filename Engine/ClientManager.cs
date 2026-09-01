@@ -17,6 +17,7 @@ public sealed class ClientManager : IClientManager, IDisposable
     private readonly Timer _evictionTimer;
     private readonly bool _shutdownOnLastClient;
     private readonly Action? _onLastClientDisconnected;
+    private int _everHadClients; // 0 = no clients ever registered, 1 = at least one has
 
     public ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger)
         : this(sessionRegistry, config, logger, onLastClientDisconnected: null)
@@ -51,6 +52,7 @@ public sealed class ClientManager : IClientManager, IDisposable
         var clientId = Guid.NewGuid().ToString("N");
         var record = new ClientRecord(clientId, clientName, version ?? "unknown", DateTime.UtcNow);
         _clients[clientId] = record;
+        Interlocked.Exchange(ref _everHadClients, 1);
         _logger.Info("ClientManager", $"Registered client '{clientName}' v{version} → {clientId}");
         return clientId;
     }
@@ -116,7 +118,7 @@ public sealed class ClientManager : IClientManager, IDisposable
         }
 
         // Also check: all clients evicted, should we shut down?
-        if (_clients.IsEmpty && _shutdownOnLastClient)
+        if (_clients.IsEmpty && _shutdownOnLastClient && Interlocked.CompareExchange(ref _everHadClients, 0, 0) == 1)
         {
             _logger.Info("ClientManager", "All clients evicted — triggering server shutdown");
             _onLastClientDisconnected?.Invoke();

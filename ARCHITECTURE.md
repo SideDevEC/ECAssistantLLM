@@ -1,7 +1,7 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-08-27 (v1.5 — Option B warm prompt cache: PromptCacheSession/Manager, OFF by default for hybrid DeltaNet models; upstream llama.cpp bug)
-**Status:** ✅ 64 integration tests pass, 0 errors, 0 warnings
+**Updated:** 2026-09-01 (v1.6 — full code audit: 29 bugs fixed — tokenize endpoint, thread safety, server lifecycle, cancellation leaks)
+**Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview
 

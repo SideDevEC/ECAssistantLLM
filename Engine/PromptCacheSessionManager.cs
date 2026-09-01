@@ -43,7 +43,16 @@ public sealed class PromptCacheSessionManager : IDisposable
             if (_sessions.TryGetValue(slot.Id, out var existing))
                 return existing;
 
-            var session = new PromptCacheSession(slot.Id, slot.Weights!, slot.Params, _logger);
+            // Null guard (was slot.Weights!): Weights is null when the slot is not
+            // loaded or was unloaded concurrently. Low risk in practice — the only
+            // caller (RequestRouter.CreateStatelessStream) is behind the disabled
+            // EnableWarmPromptCache flag — but fail loudly instead of poisoning the
+            // session with null weights.
+            var weights = slot.Weights
+                ?? throw new InvalidOperationException(
+                    $"Model '{slot.Id}' has no loaded weights — cannot create prompt cache session");
+
+            var session = new PromptCacheSession(slot.Id, weights, slot.Params, _logger);
             _sessions[slot.Id] = session;
             return session;
         }
