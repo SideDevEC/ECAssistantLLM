@@ -1,6 +1,6 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantLLM
 
-Generated: 2026-09-01T13:49:28.081200+00:00
+Generated: 2026-09-02T09:12:07.648944+00:00
 Edges: 22  |  Packages: 2
 
 ---

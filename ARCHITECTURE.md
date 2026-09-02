@@ -62,11 +62,13 @@ ECAssistantLLM/                 # 22 .cs files, ~2,537 LOC
 │    ├── SessionContext.cs       # Per-session InteractiveExecutor + KV cache: prefill/infer/rewind/save/reset
 │    ├── InferenceScheduler.cs   # Serialized inference via SemaphoreSlim(1,1); nested InferenceReleaser (IAsyncDisposable)
 │    ├── VramBudget.cs           # Estimated VRAM tracking + budget enforcement
-│    └── ClientManager.cs        # Client registration, heartbeat, eviction; ClientRecord (internal) + ClientInfo record
+│    ├── ClientManager.cs        # Client registration, heartbeat, eviction; ClientRecord (internal) + ClientInfo record
+│    ├── DecisionGrammar.cs      # v14 GBNF grammar — forces valid DecisionEnvelope JSON output at sampler level
+│    └── StructuredDecoder.cs    # v14 Parses grammar output → DecisionEnvelope DTO; escapes raw control chars
 │
 ├── Server/
 │    ├── LlmHttpServer.cs        # HttpListener accept loop; dispatches each request to RequestRouter; catches JsonException → 400
-│    ├── RequestRouter.cs        # Path/method routing + all endpoint handlers (OpenAI + ECAssistant)
+│    ├── RequestRouter.cs        # Path/method routing + all endpoint handlers; v14.7 TryParseCompleteEnvelope() early termination
 │    └── SseStreamer.cs          # Stateless helper: SSE stream (chat + completion), JSON read/write
 │
 └── Models/                    # API request/response DTOs (leaf package)

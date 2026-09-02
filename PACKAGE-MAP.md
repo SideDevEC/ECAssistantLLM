@@ -1,12 +1,12 @@
 # PACKAGE-MAP.md — ECAssistantLLM
 
-Generated: 2026-09-01T13:49:28.081635+00:00
+Generated: 2026-09-02T09:12:07.649392+00:00
 
 ---
 
 | Package | Types | LOC | ~Tokens | Dependencies |
 |---|---|---|---|---|
-| ECAssistantLLM | 93 | 6021 | ~3786 | — |
+| ECAssistantLLM | 93 | 6175 | ~3786 | — |
 | Tests | 31 | 2852 | ~1472 | — |
 
 ---
