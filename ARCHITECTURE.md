@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-09-01 (v1.6 — full code audit: 29 bugs fixed — tokenize endpoint, thread safety, server lifecycle, cancellation leaks)
+**Updated:** 2026-09-02 (v14 — GBNF grammar rewritten, StructuredDecoder control-char escaping, KV cache RewindAsync fixed)
 **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview

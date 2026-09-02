@@ -47,8 +47,18 @@ public sealed class SessionContext : IDisposable
     /// <summary>Interactive executor with its own KV cache.</summary>
     public InteractiveExecutor? Executor { get; private set; }
 
-    /// <summary>Saved KV cache state for rewind.</summary>
+    /// <summary>Saved executor state for rewind (bookkeeping counters + token arrays).</summary>
     private LLama.StatefulExecutorBase.ExecutorBaseState? _savedState;
+
+    /// <summary>
+    /// Saved NATIVE KV cache snapshot for rewind. Required in addition to
+    /// <see cref="_savedState"/>: LLamaSharp 0.27's ExecutorBaseState captures only
+    /// executor bookkeeping (n_past counters, token arrays) — NOT the llama.cpp KV
+    /// cache. Restoring bookkeeping without the cache leaves the executor's position
+    /// past the actual cache contents and the next llama_decode fails with
+    /// 'InvalidInputBatch'. Owns unmanaged memory — always disposed on replace/reset.
+    /// </summary>
+    private LLamaContext.State? _savedKvState;
 
     /// <summary>Whether the static prefix has been prefilled.</summary>
     public bool IsPrefilled { get; private set; }
@@ -165,15 +175,28 @@ public sealed class SessionContext : IDisposable
     }
 
     /// <summary>
-    /// Save current KV cache state (for later rewind).
+    /// Save current state for later rewind: executor bookkeeping AND the native KV
+    /// cache. Both snapshots must be taken atomically (under the IO lock) or the two
+    /// halves can disagree about n_past and the next decode fails.
     /// </summary>
     public bool SaveState()
     {
-        if (Executor == null) return false;
+        if (Executor == null || _context == null) return false;
+
+        if (!_ioLock.Wait(ResetLockTimeout))
+        {
+            _logger.Warn("SessionContext", $"[{Key}] SaveState timed out waiting for the IO lock (inference in progress?)");
+            return false;
+        }
 
         try
         {
-            _savedState = Executor.GetStateData();
+            var state = Executor.GetStateData();
+            var kv = _context.GetState();
+            // Only commit after both snapshots succeeded — dispose the orphan.
+            _savedKvState?.Dispose();
+            _savedKvState = kv;
+            _savedState = state;
             return true;
         }
         catch (Exception ex)
@@ -181,24 +204,37 @@ public sealed class SessionContext : IDisposable
             _logger.Warn("SessionContext", $"[{Key}] SaveState failed: {ex.Message}");
             return false;
         }
+        finally
+        {
+            _ioLock.Release();
+        }
     }
 
     /// <summary>
-    /// Rewind KV cache to the last saved state.
+    /// Rewind to the last saved state: restore the native KV cache first, then the
+    /// executor bookkeeping. Without the KV cache half the executor's n_past is left
+    /// past the real cache contents and llama_decode fails with 'InvalidInputBatch'.
     /// </summary>
     public async Task<bool> RewindAsync()
     {
-        if (Executor == null) return false;
+        if (Executor == null || _context == null) return false;
 
-        if (_savedState == null)
+        if (_savedState == null || _savedKvState == null)
         {
             _logger.Warn("SessionContext", $"[{Key}] Rewind: no saved state");
             return false;
         }
 
+        await _ioLock.WaitAsync();
         try
         {
+            // 1. Native KV cache (llama_set_state_data) — must match the bookkeeping below.
+            _context.LoadState(_savedKvState);
+            // 2. Executor bookkeeping (n_past, consumed counters, token arrays).
             await Executor.LoadState(_savedState);
+            // Pending multimodal media cannot survive a rewind — the projector's
+            // internal chunk state is not captured by either snapshot.
+            try { _mtmd?.ClearMedia(); } catch { }
             _logger.Info("SessionContext", $"[{Key}] Rewound to saved state");
             return true;
         }
@@ -206,6 +242,10 @@ public sealed class SessionContext : IDisposable
         {
             _logger.Warn("SessionContext", $"[{Key}] Rewind failed: {ex.Message}");
             return false;
+        }
+        finally
+        {
+            _ioLock.Release();
         }
     }
 
@@ -238,6 +278,8 @@ public sealed class SessionContext : IDisposable
             oldContext?.Dispose();
 
             _savedState = null;
+            _savedKvState?.Dispose();
+            _savedKvState = null;
             IsPrefilled = false;
             ApproxTokenCount = 0;
             _logger.Info("SessionContext", $"[{Key}] KV cache reset");
@@ -326,5 +368,7 @@ public sealed class SessionContext : IDisposable
 
         // InteractiveExecutor doesn't implement IDisposable
         _context?.Dispose();
+        _savedKvState?.Dispose();
+        _savedKvState = null;
     }
 }

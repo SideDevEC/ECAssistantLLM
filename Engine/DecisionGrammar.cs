@@ -8,14 +8,21 @@ namespace ECAssistant.LLM.Engine;
 /// </summary>
 public static class DecisionGrammar
 {
-    /// <summary>GBNF source. Root rule: {"thinking": string, ("answer": string | "toolcalls": [call])}</summary>
+    /// <summary>
+    /// GBNF source. Root rule: {"thinking": string, ("answer": string | "toolcalls": [call])}
+    /// NOTE: the string rule intentionally uses the simple negated class [^"\\] — complex
+    /// hex-escape character ranges (\x00-\x1F etc.) in the character class are not reliably
+    /// parsed by the llama.cpp GBNF compiler and made the whole rule misbehave, letting raw
+    /// newlines/tabs through. Unescaped control chars that still slip through are repaired
+    /// by StructuredDecoder (defense in depth).
+    /// </summary>
     public const string Gbnf = """
-root ::= "{" ws "\"thinking\"" ws ":" ws string ws "," ws body ws "}"
-body ::= "\"answer\"" ws ":" ws string | "\"toolcalls\"" ws ":" ws "[" ws [ call (ws "," ws call)* ] ws "]"
-call  ::= "{" ws "\"name\"" ws ":" ws string ws "," ws "\"args\"" ws ":" ws obj ws "}"
-obj   ::= "{" ws [ string ws ":" ws string (ws "," ws string ws ":" ws string)* ] ws "}"
-string ::= "\"" ( [^"\\\x7F\x00-\x1F] | "\\" ( ["\\bfnrt] | "u" [0-9a-fA-F]{4} ) )* "\""
-ws ::= [ \t\n\r]*
+root ::= envelope
+envelope ::= "{" ws "\"thinking\"" ws ":" ws string ws ("," ws "\"answer\"" ws ":" ws string ws | "," ws "\"toolcalls\"" ws ":" ws "[" ws (toolcall ("," ws toolcall)*)? ws "]" ws) "}"
+toolcall ::= "{" ws "\"name\"" ws ":" ws string ws "," ws "\"args\"" ws ":" ws object ws "}"
+string ::= "\"" ( [^"\\] | "\\" ( ["\\bfnrt] | "u" [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F] ) )* "\""
+object ::= "{" ws (string ":" ws string ("," ws string ":" ws string)*)? ws "}"
+ws ::= [ \t\n]*
 """;
 
     /// <summary>Grammar root rule name.</summary>
