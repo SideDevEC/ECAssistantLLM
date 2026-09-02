@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-09-02 (v14 — GBNF grammar rewritten, StructuredDecoder control-char escaping, KV cache RewindAsync fixed)
+**Updated:** 2026-09-02 (v14.7 — early termination on envelope completion, max_tokens 256)
 **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview
