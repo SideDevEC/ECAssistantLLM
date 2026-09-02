@@ -272,6 +272,8 @@ public sealed class RequestRouter : IRequestRouter
             {
                 var envelope = StructuredDecoder.Decode(structuredSb.ToString());
                 _logger.Info("Router", $"[Structured] decoded: answer={envelope.HasAnswer}, toolcalls={envelope.ToolCalls?.Count ?? 0}");
+            _logger.Info("Router", $"[Structured] RAW OUTPUT ({structuredSb.Length} chars): {structuredSb.ToString()[..Math.Min(structuredSb.Length, 500)]}");
+            if (envelope.HasAnswer) _logger.Info("Router", $"[Structured] ANSWER TEXT: {envelope.Answer?[..Math.Min(envelope.Answer.Length, 200)]}");
                 await SseStreamer.WriteJsonAsync(ctx.Response, new { decision = envelope });
             }
             catch (InvalidDecisionException ex)
