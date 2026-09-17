@@ -1,0 +1,64 @@
+name: Publish ECAssistant.LLM.Server NuGet Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (e.g. 14.7.0)'
+        required: true
+        default: '14.7.0'
+  push:
+    tags:
+      - 'llm-server-v*'
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore ECAssistant.LLM.csproj
+
+      - name: Build server (Release)
+        run: dotnet build ECAssistant.LLM.csproj --configuration Release --no-restore
+
+      - name: Set version from tag or input
+        id: version
+        run: |
+          if [[ "${{ github.event.inputs.version }}" != "" ]]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            # Extract from tag: llm-server-v14.7.0 → 14.7.0
+            TAG="${GITHUB_REF#refs/tags/llm-server-v}"
+            echo "version=$TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Pack NuGet package
+        run: |
+          dotnet pack ECAssistant.LLM.csproj \
+            --configuration Release \
+            --no-build \
+            /p:PackageVersion=${{ steps.version.outputs.version }} \
+            -o ./nupkg
+
+      - name: Publish to GitHub Packages
+        run: |
+          dotnet nuget push ./nupkg/*.nupkg \
+            --api-key ${{ secrets.GITHUB_TOKEN }} \
+            --source https://nuget.pkg.github.com/SideDevEC/index.json \
+            --skip-duplicate
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecassistant-llm-server-${{ steps.version.outputs.version }}
+          path: ./nupkg/*.nupkg
+          retention-days: 30

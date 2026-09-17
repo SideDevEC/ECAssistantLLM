@@ -8,6 +8,20 @@
     <RootNamespace>ECAssistant.LLM</RootNamespace>
     <AssemblyName>ECAssistant.LLM</AssemblyName>
     <Description>ECAssistant LLM — standalone OpenAI-compatible local LLM server powered by LLamaSharp.</Description>
+
+    <!-- NuGet package — ECAssistant.LLM.Server distributes the compiled server runtime
+         as content files so consuming projects get the server binary at build time.
+         The wizard copies it to ~/.ECAssistantLLM/server/ on first install. -->
+    <IsPackable>true</IsPackable>
+    <PackageId>ECAssistant.LLM.Server</PackageId>
+    <PackageVersion>14.7.0</PackageVersion>
+    <PackageTags>ecassistant;llm;llamasharp;local-llm;openai-compatible</PackageTags>
+    <PackageProjectUrl>https://github.com/SideDevEC/ECAssistantLLM</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/SideDevEC/ECAssistantLLM.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <IncludeContentInPack>true</IncludeContentInPack>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,13 +34,38 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Keep the in-repo test project out of the main server build. -->
     <Compile Remove="Tests\**" />
     <InternalsVisibleTo Include="ECAssistant.LLM.Tests" />
 
     <None Update="llm-server.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <!-- NuGet content: the server runtime files included in the package.
+       These are placed under content/server/ in the .nupkg so consuming projects
+       get a server/ directory in their build output. -->
+  <ItemGroup>
+    <!-- Managed DLLs -->
+    <Content Include="$(OutputPath)ECAssistant.LLM.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)ECAssistant.LLM.runtimeconfig.json" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)LLamaSharp.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)CommunityToolkit.HighPerformance.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)Microsoft.Bcl.AsyncInterfaces.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)Microsoft.Bcl.Memory.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)Microsoft.Extensions.AI.Abstractions.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)Microsoft.Extensions.DependencyInjection.Abstractions.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)Microsoft.Extensions.Logging.Abstractions.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)System.Diagnostics.DiagnosticSource.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)System.IO.Pipelines.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)System.Interactive.Async.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)System.Linq.Async.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)System.Linq.AsyncEnumerable.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)System.Numerics.Tensors.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)System.Text.Encodings.Web.dll" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)System.Text.Json.dll" Pack="true" PackagePath="content/server/" />
+    <!-- Native runtimes -->
+    <Content Include="$(OutputPath)runtimes\**" Pack="true" PackagePath="content/server/runtimes/" />
   </ItemGroup>
 
 </Project>
