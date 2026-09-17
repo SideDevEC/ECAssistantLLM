@@ -14,7 +14,10 @@
          The wizard copies it to ~/.ECAssistantLLM/server/ on first install. -->
     <IsPackable>true</IsPackable>
     <PackageId>ECAssistant.LLM.Server</PackageId>
-    <PackageVersion>14.7.0</PackageVersion>
+    <PackageVersion>14.7.5</PackageVersion>
+    <Authors>SideDevEC</Authors>
+    <Company>SideDevEC</Company>
+    <Product>ECAssistantLLM</Product>
     <PackageTags>ecassistant;llm;llamasharp;local-llm;openai-compatible</PackageTags>
     <PackageProjectUrl>https://github.com/SideDevEC/ECAssistantLLM</PackageProjectUrl>
     <RepositoryUrl>https://github.com/SideDevEC/ECAssistantLLM.git</RepositoryUrl>
