@@ -11,6 +11,10 @@ on:
     tags:
       - 'llm-server-v*'
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
@@ -36,7 +40,6 @@ jobs:
           if [[ "${{ github.event.inputs.version }}" != "" ]]; then
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           else
-            # Extract from tag: llm-server-v14.7.0 → 14.7.0
             TAG="${GITHUB_REF#refs/tags/llm-server-v}"
             echo "version=$TAG" >> $GITHUB_OUTPUT
           fi
