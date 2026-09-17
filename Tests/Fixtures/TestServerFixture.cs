@@ -303,7 +303,9 @@ public sealed class TestServerFixture : IAsyncLifetime
          {
           Directory.CreateDirectory(modelsDir);
 
-          var canonical = "/Users/localdev/agent/models";
+          // Dev convenience: also link models from the local workspace copy if present.
+          var workspaceModels = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "agent", "models");
+          var canonical = Directory.Exists(workspaceModels) ? workspaceModels : modelsDir;
           var targets = new (string Out, string In)[]
                  {
                      ("qwen3-8b-q4_k_m.gguf", "Qwen_Qwen3-8B-Q4_K_M.gguf"),
