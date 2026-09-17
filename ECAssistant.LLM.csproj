@@ -20,8 +20,6 @@
     <RepositoryUrl>https://github.com/SideDevEC/ECAssistantLLM.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <ContentTargetFolders>content</ContentTargetFolders>
-    <IncludeContentInPack>true</IncludeContentInPack>
   </PropertyGroup>
 
   <ItemGroup>
@@ -42,9 +40,11 @@
     </None>
   </ItemGroup>
 
-  <!-- NuGet content: the server runtime files included in the package.
-       These are placed under content/server/ in the .nupkg so consuming projects
-       get a server/ directory in their build output. -->
+  <!-- NuGet package layout:
+       - content/server/**   — the server runtime files
+       - build/net8.0/*.targets — MSBuild target copies content/server → $(OutDir)server/
+       Consuming projects get a server/ directory in their build output at build time.
+       The wizard copies server/ to ~/.ECAssistantLLM/server/ on first install. -->
   <ItemGroup>
     <!-- Managed DLLs -->
     <Content Include="$(OutputPath)ECAssistant.LLM.dll" Pack="true" PackagePath="content/server/" />
@@ -66,6 +66,8 @@
     <Content Include="$(OutputPath)System.Text.Json.dll" Pack="true" PackagePath="content/server/" />
     <!-- Native runtimes -->
     <Content Include="$(OutputPath)runtimes\**" Pack="true" PackagePath="content/server/runtimes/" />
+    <!-- MSBuild target that copies content/server → consuming project's output -->
+    <None Include="build\ECAssistant.LLM.Server.targets" Pack="true" PackagePath="build/net8.0/" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,19 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- Copies the ECAssistantLLM server runtime (content/server/ in this package)
+       into the consuming project's output directory under server/.
+       The ECAssistant wizard then copies server/ to ~/.ECAssistantLLM/server/
+       on first install. -->
+  <Target Name="EcaLlmServerStageContent" AfterTargets="Build">
+    <PropertyGroup>
+      <_EcaLlmContentDir>$(MSBuildThisFileDirectory)../../content/server/</_EcaLlmContentDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_EcaLlmServerFiles Include="$([MSBuild]::NormalizeDirectory('$(_EcaLlmContentDir)'))**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_EcaLlmServerFiles)"
+          DestinationFiles="@(_EcaLlmServerFiles->'$(OutDir)server/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
