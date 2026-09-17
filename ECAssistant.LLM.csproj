@@ -52,6 +52,7 @@
     <!-- Managed DLLs -->
     <Content Include="$(OutputPath)ECAssistant.LLM.dll" Pack="true" PackagePath="content/server/" />
     <Content Include="$(OutputPath)ECAssistant.LLM.runtimeconfig.json" Pack="true" PackagePath="content/server/" />
+    <Content Include="$(OutputPath)ECAssistant.LLM.deps.json" Pack="true" PackagePath="content/server/" />
     <Content Include="$(OutputPath)LLamaSharp.dll" Pack="true" PackagePath="content/server/" />
     <Content Include="$(OutputPath)CommunityToolkit.HighPerformance.dll" Pack="true" PackagePath="content/server/" />
     <Content Include="$(OutputPath)Microsoft.Bcl.AsyncInterfaces.dll" Pack="true" PackagePath="content/server/" />
