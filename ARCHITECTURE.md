@@ -291,4 +291,4 @@ Section semantics:
 
 ## Changelog — 2026-08-27 (Vision Fix)
 
-- **Engine/**: `MtmdMarkerResolver` — reflection access to LLamaSharp's protected `GetMtmdMarker()` (0.27); used in `SessionContext` + `RequestRouter` (StatelessVisionInferAsync) to substitute the projector's real media marker. Vision E2E verified (Qwen2.5-VL + mmproj on :58777).
+- **Engine/**: `MtmdMarkerResolver` — reflection access to LLamaSharp's protected `GetMtmdMarker()` (0.27); used in `SessionContext` + `RequestRouter` (StatelessVisionInferAsync) to substitute the projector's real media marker. Vision E2E verified (Qwen2.5-VL + mmproj on :48217).
