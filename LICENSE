@@ -19,3 +19,27 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+================================================================================
+
+This project depends on the following third-party libraries:
+
+LLamaSharp (MIT License)
+  Copyright (c) 2025 SciSharp STACK
+  https://github.com/SciSharp/LLamaSharp
+
+llama.cpp (MIT License)
+  Copyright (c) 2023 Georgi Gerganov
+  https://github.com/ggerganov/llama.cpp
+
+Microsoft.Extensions.Logging.Abstractions (MIT License)
+  Copyright (c) .NET Foundation and Contributors
+
+CommunityToolkit.HighPerformance (MIT License)
+  Copyright (c) .NET Foundation and Contributors
+
+System.Text.Json (MIT License)
+  Copyright (c) .NET Foundation and Contributors
+
+All third-party licenses are included in their respective NuGet packages.
