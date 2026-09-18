@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Engine;
+using ECAssistant.LLM.Engine.Backends;
 using ECAssistant.LLM.Interfaces;
 using ECAssistant.LLM.Models;
 
@@ -13,6 +14,7 @@ namespace ECAssistant.LLM.Server;
 /// </summary>
 public sealed class RequestRouter : IRequestRouter
 {
+
     private readonly MultiModelHost _models;
     private readonly SessionRegistry _sessions;
     private readonly IInferenceScheduler _scheduler;
@@ -22,6 +24,8 @@ public sealed class RequestRouter : IRequestRouter
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
     private readonly PromptCacheSessionManager _promptCache;
+    private readonly IProcessModelHost? _processHost;
+    private readonly BackendSelector _backendSelector = new();
 
     /// <summary>
     /// Warm prompt-cache routing for stateless calls. DISABLED by default pending upstream
@@ -45,7 +49,8 @@ public sealed class RequestRouter : IRequestRouter
         IClientManager clients,
         LlmServerConfig config,
         ILogger logger,
-        CancellationTokenSource cts)
+        CancellationTokenSource cts,
+        IProcessModelHost? processHost = null)
     {
         _models = models;
         _sessions = sessions;
@@ -55,6 +60,7 @@ public sealed class RequestRouter : IRequestRouter
         _config = config;
         _logger = logger;
         _cts = cts;
+        _processHost = processHost;
         _promptCache = new PromptCacheSessionManager(models, logger);
     }
 
@@ -194,11 +200,58 @@ public sealed class RequestRouter : IRequestRouter
             404);
     }
 
-    // ── OpenAI handlers ──────────────────────────────────
+    // ── Process-backend routing helpers ─────────────────
+
+    /// <summary>True when the model is served by the Process backend (ternary/external llama-server).</summary>
+    private bool IsProcessModel(string modelId)
+    {
+        if (_processHost is null) return false;
+        if (_processHost.Instances.Any(i => i.ModelId.Equals(modelId, StringComparison.OrdinalIgnoreCase)))
+            return true;
+        var cfg = _config.Models.FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase));
+        return cfg is not null && _backendSelector.Select(cfg) == ModelBackendKind.Process;
+    }
+
+    /// <summary>Ensures the process model is running; returns its base URL (null when unavailable).</summary>
+    private async Task<string?> EnsureProcessBaseAsync(string modelId, CancellationToken ct)
+    {
+        if (_processHost is null) return null;
+        var cfg = _config.Models.FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase));
+        if (cfg is null) return null;
+        var instance = await _processHost.EnsureStartedAsync(cfg, ct);
+        return instance.BaseUrl;
+    }
+
+    /// <summary>
+    /// When the model is a Process-backend model, proxies the request to the child
+    /// llama-server (or writes a clear error) and returns true (handled).
+    /// </summary>
+    private async Task<bool> TryProxyProcessModelAsync(HttpListenerContext ctx, string? modelId, string? sessionId, byte[]? rawBody, CancellationToken ct)
+    {
+        if (modelId == null || !IsProcessModel(modelId)) return false;
+
+        if (sessionId != null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = $"Session state (session_id) is not supported for process-backend model '{modelId}'. Send the full message history instead.", Type = "not_supported" } }, 400);
+            return true;
+        }
+
+        var baseUrl = await EnsureProcessBaseAsync(modelId, ct);
+        if (baseUrl == null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
+            return true;
+        }
+
+        await ProxyRequestHandler.ForwardAsync(ctx, baseUrl, rawBody, ct);
+        return true;
+    }
 
     private async Task HandleChatCompletionAsync(HttpListenerContext ctx, string clientId, CancellationToken ct)
     {
-        var (req, ok) = await ReadBodyOrErrorAsync<ChatCompletionRequest>(ctx, ct);
+        var (req, ok, rawBody) = await ReadBodyOrErrorAsync<ChatCompletionRequest>(ctx, ct);
         if (!ok) return;
 
         // M-10: a JSON null model field deserializes to null even though the DTO
@@ -209,6 +262,9 @@ public sealed class RequestRouter : IRequestRouter
                 new ErrorResponse { Error = new() { Message = "model is required", Type = "invalid_request" } }, 400);
             return;
         }
+
+        // Process-backend models (ternary) are proxied 1:1 to the child llama-server.
+        if (await TryProxyProcessModelAsync(ctx, req.Model, req.SessionId, rawBody, ct)) return;
 
         var session = ResolveSession(clientId, req.SessionId);
         if (session == null && req.SessionId != null)
@@ -357,7 +413,7 @@ public sealed class RequestRouter : IRequestRouter
 
     private async Task HandleCompletionAsync(HttpListenerContext ctx, string clientId, CancellationToken ct)
     {
-        var (req, ok) = await ReadBodyOrErrorAsync<CompletionRequest>(ctx, ct);
+        var (req, ok, rawBody) = await ReadBodyOrErrorAsync<CompletionRequest>(ctx, ct);
         if (!ok) return;
 
         // M-10: guard null model fields — 400, not a 500 from TryGetSlot(null).
@@ -367,6 +423,8 @@ public sealed class RequestRouter : IRequestRouter
                 new ErrorResponse { Error = new() { Message = "model is required", Type = "invalid_request" } }, 400);
             return;
         }
+
+        if (await TryProxyProcessModelAsync(ctx, req.Model, null, rawBody, ct)) return;
 
         if (string.IsNullOrEmpty(req.Prompt))
         {
@@ -460,6 +518,7 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         // JSON null overrides the DTO default — null-guard before TryGetSlot (M-10).
+        if (req.Model != null && await TryProxyProcessModelAsync(ctx, req.Model, null, null, ct)) return;
         var slot = (req.Model != null ? _models.TryGetSlot(req.Model) : null) ?? _models.GetEmbeddingSlot();
         if (slot == null || !slot.IsEmbedding || slot.Embedder == null)
         {
@@ -492,19 +551,37 @@ public sealed class RequestRouter : IRequestRouter
     private async Task HandleListModelsAsync(HttpListenerContext ctx)
     {
         var models = _models.GetModelInfoList();
-        var response = new
+        var entries = models.Select(m => new
         {
-            @object = "list",
-            data = models.Select(m => new
+            id = m.Id,
+            @object = "model",
+            created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            owned_by = "ecassistant",
+            loaded = m.IsLoaded,
+            is_embedding = m.IsEmbedding
+        }).ToList();
+
+        // Process-backend (ternary) models appear as their own entries.
+        if (_processHost is not null)
+        {
+            foreach (var cfg in _config.Models)
             {
-                id = m.Id,
-                @object = "model",
-                created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                owned_by = "ecassistant",
-                loaded = m.IsLoaded,
-                is_embedding = m.IsEmbedding
-            }).ToList()
-        };
+                if (IsProcessModel(cfg.Id) && !entries.Any(e => e.id == cfg.Id))
+                {
+                    entries.Add(new
+                    {
+                        id = cfg.Id,
+                        @object = "model",
+                        created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                        owned_by = "ecassistant",
+                        loaded = _processHost.Instances.Any(i => i.ModelId.Equals(cfg.Id, StringComparison.OrdinalIgnoreCase)),
+                        is_embedding = cfg.IsEmbedding
+                    });
+                }
+            }
+        }
+
+        var response = new { @object = "list", data = entries };
         await SseStreamer.WriteJsonAsync(ctx.Response, response);
     }
 
@@ -876,6 +953,18 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
+        // Tokenization goes through the child server's own /tokenize endpoint for
+        // process-backend models.
+        if (IsProcessModel(req.Model))
+        {
+            var baseUrl = await EnsureProcessBaseAsync(req.Model, CancellationToken.None);
+            if (baseUrl != null)
+            {
+                await ProxyRequestHandler.ForwardAsync(ctx, baseUrl, null, CancellationToken.None);
+                return;
+            }
+        }
+
         var slot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
         if (slot == null)
         {
@@ -944,15 +1033,37 @@ public sealed class RequestRouter : IRequestRouter
     /// Read and deserialize a JSON request body. On failure, writes a 400 response
     /// and returns ok=false so the handler can stop.
     /// </summary>
-    private static async Task<(T? req, bool ok)> ReadBodyOrErrorAsync<T>(HttpListenerContext ctx, CancellationToken ct)
+    private static async Task<(T? req, bool ok, byte[] rawBody)> ReadBodyOrErrorAsync<T>(HttpListenerContext ctx, CancellationToken ct)
     {
-        var req = await SseStreamer.ReadJsonAsync<T>(ctx.Request, ct);
+        // Buffer the raw body ONCE: process-backend proxying forwards these bytes
+        // because HttpListener's InputStream cannot be re-read after parsing.
+        using var ms = new MemoryStream();
+        var buffer = new byte[81920];
+        int read;
+        long total = 0;
+        bool tooLarge = false;
+        while ((read = await ctx.Request.InputStream.ReadAsync(buffer, ct)) > 0)
+        {
+            total += read;
+            if (total > SseStreamer.MaxRequestBodyBytes) { tooLarge = true; break; }
+            ms.Write(buffer, 0, read);
+        }
+
+        var rawBody = ms.ToArray();
+        T? req = default;
+        if (!tooLarge)
+        {
+            var body = System.Text.Encoding.UTF8.GetString(rawBody);
+            if (!string.IsNullOrWhiteSpace(body))
+                req = System.Text.Json.JsonSerializer.Deserialize<T>(body, SseStreamer.JsonOptions);
+        }
+
         if (req != null)
-            return (req, true);
+            return (req, true, rawBody);
 
         await SseStreamer.WriteJsonAsync(ctx.Response,
-            new ErrorResponse { Error = new() { Message = "Invalid request body", Type = "invalid_request" } }, 400);
-        return (default, false);
+            new ErrorResponse { Error = new() { Message = tooLarge ? "Request body too large" : "Invalid request body", Type = "invalid_request" } }, 400);
+        return (default, false, rawBody);
     }
 
     /// <summary>

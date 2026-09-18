@@ -70,6 +70,9 @@
     <Content Include="$(OutputPath)System.Text.Json.dll" Pack="true" PackagePath="content/server/" />
     <!-- Native runtimes -->
     <Content Include="$(OutputPath)runtimes\**" Pack="true" PackagePath="content/server/runtimes/" />
+    <!-- Install manifest: the wizard (Core) reads this to install backend runtimes. LLM owns the knowledge; Core only parses the file. -->
+    <Content Include="Assets\install-manifest.json" Pack="true" PackagePath="content/server/" />
+    <Content Include="Assets\install-manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- MSBuild target that copies content/server → consuming project's output -->
     <None Include="build\ECAssistant.LLM.Server.targets" Pack="true" PackagePath="build/net8.0/" />
   </ItemGroup>

@@ -1,5 +1,6 @@
 using LLama;
 using ECAssistant.LLM.Config;
+using ECAssistant.LLM.Engine.Backends;
 
 namespace ECAssistant.LLM.Engine;
 
@@ -13,6 +14,7 @@ public sealed class MultiModelHost : IDisposable
     private readonly object _slotsLock = new();
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
+    private readonly BackendSelector _backendSelector;
     /// <summary>Server root (--root). Model paths resolve strictly inside this directory.</summary>
     private readonly string _rootDir;
     private bool _disposed;
@@ -32,10 +34,11 @@ public sealed class MultiModelHost : IDisposable
     /// <summary>Embedding model ID (first embedding model in config, or null).</summary>
     public string? EmbeddingModelId { get; }
 
-    public MultiModelHost(LlmServerConfig config, ILogger logger, string rootDir)
+    public MultiModelHost(LlmServerConfig config, ILogger logger, string rootDir, BackendSelector? backendSelector = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _backendSelector = backendSelector ?? new BackendSelector();
         _rootDir = string.IsNullOrWhiteSpace(rootDir)
             ? throw new ArgumentNullException(nameof(rootDir))
             : Path.GetFullPath(rootDir);
@@ -52,15 +55,38 @@ public sealed class MultiModelHost : IDisposable
     /// </summary>
     public async Task LoadAllAsync()
     {
+        var failures = new List<string>();
         foreach (var modelConfig in _config.Models)
         {
-            var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger, _rootDir);
-            await slot.LoadAsync();
-            lock (_slotsLock)
+            // Process-backend models are NOT loaded in-process — the ProcessModelHost
+            // supervises an external llama-server for them on first request.
+            if (_backendSelector.Select(modelConfig) == ModelBackendKind.Process)
             {
-                _slots[modelConfig.Id] = slot;
+                _logger.Info("MultiModelHost", $"Model '{modelConfig.Id}' uses the Process backend — not loaded in-process.");
+                continue;
+            }
+
+            var slot = new ModelSlot(modelConfig.Id, modelConfig, _logger, _rootDir);
+            try
+            {
+                await slot.LoadAsync();
+                lock (_slotsLock)
+                {
+                    _slots[modelConfig.Id] = slot;
+                }
+            }
+            catch (Exception ex)
+            {
+                // One broken model must not prevent the others from loading.
+                slot.Dispose();
+                failures.Add($"{modelConfig.Id}: {ex.Message}");
+                _logger.Error("MultiModelHost", $"Failed to load model '{modelConfig.Id}': {ex.Message}");
             }
         }
+
+        if (failures.Count > 0 && LoadedCount == 0)
+            throw new InvalidOperationException(
+                "No models could be loaded: " + string.Join("; ", failures));
 
         _logger.Info("MultiModelHost", $"Loaded {LoadedCount} model(s): {string.Join(", ", LoadedModelIds)}");
     }

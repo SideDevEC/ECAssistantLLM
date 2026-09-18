@@ -10,7 +10,7 @@ namespace ECAssistant.LLM.Server;
 /// </summary>
 public static class SseStreamer
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    public static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         PropertyNamingPolicy = null  // keep PascalCase in DTOs, we use JsonPropertyName

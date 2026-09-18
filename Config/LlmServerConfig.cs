@@ -20,6 +20,9 @@ public sealed class LlmServerConfig
     [JsonPropertyName("logging")]
     public LoggingSection Logging { get; set; } = new();
 
+    [JsonPropertyName("backends")]
+    public BackendsSection Backends { get; set; } = new();
+
     /// <summary>
     /// Load config from a JSON file path. Throws if file is missing or invalid.
     /// </summary>

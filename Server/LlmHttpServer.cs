@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Engine;
+using ECAssistant.LLM.Engine.Backends;
 using ECAssistant.LLM.Interfaces;
 using ECAssistant.LLM.Models;
 using ECAssistant.LLM.Server;
@@ -40,7 +41,8 @@ public sealed class LlmHttpServer : IDisposable
         VramBudget vramBudget,
         IClientManager clientManager,
         ILogger logger,
-        CancellationTokenSource? externalCts = null)
+        CancellationTokenSource? externalCts = null,
+        IProcessModelHost? processModelHost = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _modelHost = modelHost ?? throw new ArgumentNullException(nameof(modelHost));
@@ -55,7 +57,7 @@ public sealed class LlmHttpServer : IDisposable
 
         _router = new RequestRouter(
             _modelHost, _sessionRegistry, _scheduler, _vramBudget,
-            _clientManager, _config, _logger, _cts);
+            _clientManager, _config, _logger, _cts, processModelHost);
 
         _requestGate = new SemaphoreSlim(MaxConcurrentRequests, MaxConcurrentRequests);
 

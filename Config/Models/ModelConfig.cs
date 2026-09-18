@@ -45,4 +45,11 @@ public sealed class ModelConfig
     /// <summary>True when vision is enabled via mmproj_path.</summary>
     [JsonIgnore]
     public bool SupportsVision => !string.IsNullOrWhiteSpace(MmprojPath);
+
+    /// <summary>
+    /// Execution backend override: "auto" (default), "llamasharp", or "process".
+    /// "auto" routes ternary-packed models to the Process backend (see BackendSelector).
+    /// </summary>
+    [JsonPropertyName("backend")]
+    public string Backend { get; set; } = "auto";
 }
