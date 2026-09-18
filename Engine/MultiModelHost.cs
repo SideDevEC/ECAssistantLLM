@@ -43,9 +43,19 @@ public sealed class MultiModelHost : IDisposable
             ? throw new ArgumentNullException(nameof(rootDir))
             : Path.GetFullPath(rootDir);
 
-        MainModelId = config.Models.FirstOrDefault(m => !m.IsEmbedding)?.Id
-            ?? throw new InvalidOperationException("No chat model configured");
+        MainModelId = ResolveMainModelId(config);
         EmbeddingModelId = config.Models.FirstOrDefault(m => m.IsEmbedding)?.Id;
+    }
+
+    private string ResolveMainModelId(LlmServerConfig config)
+    {
+        // The main model must be an in-process (LLamaSharp) model — Process-backend
+        // models never get a slot, so a session pinned to them would fail at GetSlot.
+        var main = config.Models.FirstOrDefault(m =>
+            !m.IsEmbedding && _backendSelector.Select(m) == ModelBackendKind.LlamaSharp)
+            ?? config.Models.FirstOrDefault(m => !m.IsEmbedding)
+            ?? throw new InvalidOperationException("No chat model configured");
+        return main.Id;
     }
 
     /// <summary>

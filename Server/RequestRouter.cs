@@ -1045,7 +1045,12 @@ public sealed class RequestRouter : IRequestRouter
         while ((read = await ctx.Request.InputStream.ReadAsync(buffer, ct)) > 0)
         {
             total += read;
-            if (total > SseStreamer.MaxRequestBodyBytes) { tooLarge = true; break; }
+            if (total > SseStreamer.MaxRequestBodyBytes)
+            {
+                // Drain-and-discard: never leave the client blocked mid-write.
+                tooLarge = true;
+                continue;
+            }
             ms.Write(buffer, 0, read);
         }
 

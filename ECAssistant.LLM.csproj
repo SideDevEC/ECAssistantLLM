@@ -14,7 +14,7 @@
          The wizard copies it to ~/.ECAssistantLLM/server/ on first install. -->
     <IsPackable>true</IsPackable>
     <PackageId>ECAssistant.LLM.Server</PackageId>
-    <PackageVersion>14.7.7</PackageVersion>
+    <PackageVersion>14.7.8</PackageVersion>
     <Authors>SideDevEC</Authors>
     <Company>SideDevEC</Company>
     <Product>ECAssistantLLM</Product>
@@ -23,6 +23,7 @@
     <RepositoryUrl>https://github.com/SideDevEC/ECAssistantLLM.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -75,6 +76,10 @@
     <Content Include="Assets\install-manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- MSBuild target that copies content/server → consuming project's output -->
     <None Include="build\ECAssistant.LLM.Server.targets" Pack="true" PackagePath="build/net8.0/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>

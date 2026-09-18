@@ -12,6 +12,9 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
 {
     private readonly Dictionary<string, ProcessModelInstance> _instances =
         new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>In-flight starts, keyed by model id — prevents double-start under concurrent first requests.</summary>
+    private readonly Dictionary<string, Task<ProcessModelInstance>> _starting =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
@@ -48,45 +51,66 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
     }
 
     /// <inheritdoc/>
-    public async Task<ProcessModelInstance> EnsureStartedAsync(ModelConfig config, CancellationToken ct = default)
+    public Task<ProcessModelInstance> EnsureStartedAsync(ModelConfig config, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
+        Task<ProcessModelInstance> start;
         lock (_lock)
         {
             if (_instances.TryGetValue(config.Id, out var existing))
-                return existing;
+                return Task.FromResult(existing);
+            if (_starting.TryGetValue(config.Id, out var inFlight))
+                return inFlight.WaitAsync(ct);
+
+            start = StartCoreAsync(config, ct);
+            _starting[config.Id] = start;
         }
+        return start.WaitAsync(ct);
+    }
 
-        var backendsRoot = ResolveRootedPath(_config.Backends.BackendsRoot);
-        var modelsRoot = ResolveRootedPath(_config.Backends.ModelsRoot);
-
-        // Model weights must already be installed (wizard). No downloads, ever.
-        var modelPath = ResolveModelPath(config.Path, modelsRoot);
-        if (!File.Exists(modelPath))
-            throw new InvalidOperationException(
-                $"Model weights not found for '{config.Id}': {modelPath}. " +
-                "Run the setup wizard to install the model.");
-
-        // Runtime must already be installed (wizard). No downloads, ever.
-        var platform = PlatformDetector.Current();
-        var runtimeManifest = _catalog.For(platform).First();
-        var binaryPath = _runtimeLocator.FindInstalled(backendsRoot, runtimeManifest);
-        if (binaryPath is null)
-            throw new InvalidOperationException(
-                $"Backend runtime '{runtimeManifest.RuntimeId}' is not installed under '{backendsRoot}'. " +
-                "Run the setup wizard — it installs everything ECAssistantLLM needs. " +
-                "The LLM server does not download runtimes at runtime.");
-
-        var port = AllocatePort(config);
-        var instance = new ProcessModelInstance(config, binaryPath, port, _logger);
-        await instance.StartAsync(ct).ConfigureAwait(false);
-
-        lock (_lock)
+    private async Task<ProcessModelInstance> StartCoreAsync(ModelConfig config, CancellationToken ct)
+    {
+        try
         {
-            _instances[config.Id] = instance;
+            var backendsRoot = ResolveRootedPath(_config.Backends.BackendsRoot);
+            var modelsRoot = ResolveRootedPath(_config.Backends.ModelsRoot);
+
+            // Model weights must already be installed (wizard). No downloads, ever.
+            var modelPath = ResolveModelPath(config.Path, modelsRoot);
+            if (!File.Exists(modelPath))
+                throw new InvalidOperationException(
+                    $"Model weights not found for '{config.Id}': {modelPath}. " +
+                    "Run the setup wizard to install the model.");
+
+            // Runtime must already be installed (wizard). No downloads, ever.
+            var platform = PlatformDetector.Current();
+            var runtimeManifest = _catalog.For(platform).First();
+            var binaryPath = _runtimeLocator.FindInstalled(backendsRoot, runtimeManifest);
+            if (binaryPath is null)
+                throw new InvalidOperationException(
+                    $"Backend runtime '{runtimeManifest.RuntimeId}' is not installed under '{backendsRoot}'. " +
+                    "Run the setup wizard — it installs everything ECAssistantLLM needs. " +
+                    "The LLM server does not download runtimes at runtime.");
+
+            var instance = new ProcessModelInstance(config, binaryPath, AllocatePort(), _logger);
+            await instance.StartAsync(ct).ConfigureAwait(false);
+
+            lock (_lock)
+            {
+                _starting.Remove(config.Id);
+                _instances[config.Id] = instance;
+            }
+            return instance;
         }
-        return instance;
+        catch
+        {
+            lock (_lock)
+            {
+                _starting.Remove(config.Id);
+            }
+            throw;
+        }
     }
 
     /// <inheritdoc/>
@@ -104,11 +128,12 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
         }
     }
 
-    private int AllocatePort(ModelConfig config)
+    private int AllocatePort()
     {
         lock (_lock)
         {
             var used = _instances.Values
+                .Concat(_starting.Values.Where(t => t.IsCompletedSuccessfully).Select(t => t.Result))
                 .Select(i => int.Parse(i.BaseUrl.Split(':').Last()))
                 .ToHashSet();
             for (var port = 8500; port < 8600; port++)
