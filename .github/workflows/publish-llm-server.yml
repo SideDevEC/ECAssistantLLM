@@ -14,10 +14,13 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    env:
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
 
     steps:
       - name: Checkout
@@ -57,6 +60,30 @@ jobs:
           dotnet nuget push ./nupkg/*.nupkg \
             --api-key ${{ secrets.GITHUB_TOKEN }} \
             --source https://nuget.pkg.github.com/SideDevEC/index.json \
+            --skip-duplicate
+
+      - name: Publish to nuget.org (API key — first publish only)
+        if: ${{ env.NUGET_API_KEY != '' }}
+        run: |
+          dotnet nuget push ./nupkg/*.nupkg \
+            --api-key $NUGET_API_KEY \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Log in to nuget.org via OIDC (trusted publishing)
+        uses: NuGet/login@v1
+        id: nuget-login
+        continue-on-error: true
+        with:
+          user-oidc: true
+
+      - name: Publish to nuget.org (trusted publishing)
+        if: ${{ steps.nuget-login.outputs.NUGET_API_KEY != '' }}
+        continue-on-error: true
+        run: |
+          dotnet nuget push ./nupkg/*.nupkg \
+            --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} \
+            --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
       - name: Upload package artifact
