@@ -75,7 +75,7 @@ jobs:
         id: nuget-login
         continue-on-error: true
         with:
-          user-oidc: true
+          user: SideDevEC
 
       - name: Publish to nuget.org (trusted publishing)
         if: ${{ steps.nuget-login.outputs.NUGET_API_KEY != '' }}
