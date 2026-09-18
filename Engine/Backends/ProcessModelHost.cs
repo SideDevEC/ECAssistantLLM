@@ -58,8 +58,8 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
                 return existing;
         }
 
-        var backendsRoot = Resolve(_config.Backends.BackendsRoot);
-        var modelsRoot = Resolve(_config.Backends.ModelsRoot);
+        var backendsRoot = ResolveRootedPath(_config.Backends.BackendsRoot);
+        var modelsRoot = ResolveRootedPath(_config.Backends.ModelsRoot);
 
         // Model weights must already be installed (wizard). No downloads, ever.
         var modelPath = ResolveModelPath(config.Path, modelsRoot);
@@ -119,7 +119,7 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
         throw new InvalidOperationException("No free backend port available (8500-8599)");
     }
 
-    private string Resolve(string relative) => Path.IsPathRooted(relative)
+    private string ResolveRootedPath(string relative) => Path.IsPathRooted(relative)
         ? relative
         : Path.Combine(_serverRoot, relative);
 

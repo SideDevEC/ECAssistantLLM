@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 93  |  LOC: 6175  |  ~3786 tokens
+Types: 107  |  LOC: 7019  |  ~4409 tokens
 
 ---
 
@@ -31,10 +31,29 @@ Methods:
   - void Error(string tag, string message)
   - void Debug(string tag, string message)
 
+### Interface: IProcessModelHost
+> Abstraction over the externally-served (subprocess) model host. DI seam for tests.
+Properties:
+  - IReadOnlyList<ProcessModelInstance> Instances { get; set; }
+Methods:
+  - Task<ProcessModelInstance> EnsureStartedAsync(ModelConfig config, CancellationToken ct = default)
+  - Task StopAllAsync()
+Cross-package deps: ECAssistant.LLM.Config
+
 ### Interface: IRequestRouter
 > Interface for routing incoming HTTP requests to the appropriate handler.
 Methods:
   - Task RouteAsync(HttpListenerContext ctx, CancellationToken ct)
+
+### Class: BackendSelector
+> Chooses the execution backend for a model configuration. Ternary-packed models are
+Cross-package deps: ECAssistant.LLM.Config
+
+### Class: BackendSelectorTests
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, Xunit
+
+### Class: BackendsSection
+> Configuration for the backend subsystem: where the pre-installed external
 
 ### Class: ChatCompletionChunk
 > SSE streaming chunk (OpenAI format).
@@ -190,8 +209,8 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > Main HTTP server using HttpListener. Routes requests to OpenAI and ECAssistant endpoints.
 Implements: IDisposable
 Constructor:
-  - LlmHttpServer(LlmServerConfig config, MultiModelHost modelHost, SessionRegistry sessionRegistry, IInferenceScheduler scheduler, VramBudget vramBudget, IClientManager clientManager, ILogger logger, CancellationTokenSource? externalCts = null)
-Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models, ECAssistant.LLM.Server
+  - LlmHttpServer(LlmServerConfig config, MultiModelHost modelHost, SessionRegistry sessionRegistry, IInferenceScheduler scheduler, VramBudget vramBudget, IClientManager clientManager, ILogger logger, CancellationTokenSource? externalCts = null, IProcessModelHost? processModelHost = null)
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models, ECAssistant.LLM.Server
 
 ### Class: LlmServerConfig
 > Root server configuration. Deserialized from llm-server.json.
@@ -255,14 +274,34 @@ Cross-package deps: LLama
 > Manages multiple loaded models (at least 2: main + embeddings).
 Implements: IDisposable
 Constructor:
-  - MultiModelHost(LlmServerConfig config, ILogger logger, string rootDir)
-Cross-package deps: LLama, ECAssistant.LLM.Config
+  - MultiModelHost(LlmServerConfig config, ILogger logger, string rootDir, BackendSelector? backendSelector = null)
+Cross-package deps: LLama, ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
+
+### Class: PlatformDetector
+> Detects the current runtime platform. Stateless utility — no mutable state.
+
+### Class: PlatformRuntimeCatalog
+> Pinned catalog of external backend runtime builds per platform.
 
 ### Class: PrefillRequest
 > Generic API error response.
 
 ### Class: PrefillResponse
 > Generic API error response.
+
+### Class: ProcessModelHost
+> Owns and supervises llama-server subprocess instances for Process-backend models.
+Implements: IProcessModelHost, IDisposable
+Constructor:
+  - ProcessModelHost(LlmServerConfig config, ILogger logger, string serverRoot, PlatformRuntimeCatalog? catalog = null)
+Cross-package deps: ECAssistant.LLM.Config
+
+### Class: ProcessModelInstance
+> One externally-served model: owns a llama-server child process and its port.
+Implements: IDisposable
+Constructor:
+  - ProcessModelInstance(ModelConfig config, string serverBinaryPath, int port, ILogger logger)
+Cross-package deps: ECAssistant.LLM.Config
 
 ### Class: PromptCacheSession
 > Persistent prompt-cache session reusing warm KV state across stateless/background calls
@@ -278,12 +317,15 @@ Constructor:
   - PromptCacheSessionManager(MultiModelHost models, ILogger logger)
 Cross-package deps: LLama.Common
 
+### Class: ProxyRequestHandler
+> Stateless 1:1 proxy: forwards an incoming HttpListener request to a target base URL
+
 ### Class: RequestRouter
 > Routes incoming HTTP requests to the appropriate handler.
 Implements: IRequestRouter
 Constructor:
-  - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts)
-Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models
+  - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts, IProcessModelHost? processHost = null)
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models
 
 ### Class: RewindResponse
 > Generic API error response.
@@ -297,6 +339,12 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 Constructor:
   - RoutingTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: RuntimeLocator
+> Locates previously-installed backend runtimes under the backends root directory.
+
+### Class: RuntimeLocatorTests
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
 
 ### Class: SecurityHarness
 > Lightweight server harness for auth/security tests.
@@ -369,6 +417,12 @@ Cross-package deps: ECAssistant.LLM.Engine, Xunit
 ### Class: SuccessResponse
 > Generic API error response.
 
+### Class: TernaryModelDetector
+> Detects ternary-packed GGUF models (e.g. Prism ML Bonsai-2) by reading the GGUF
+
+### Class: TernaryModelDetectorTests
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
+
 ### Class: TestServerFixture
 > Shared integration-test fixture. Starts the real ECAssistantLLM HTTP server
 Implements: IAsyncLifetime
@@ -420,7 +474,12 @@ Cross-package deps: ECAssistant.LLM.Interfaces
 > Manages multiple loaded models (at least 2: main + embeddings).
 Constructor:
   - ModelInfo(string Id, string Path, bool IsLoaded, bool IsEmbedding, int GpuLayers, uint ContextSize, int EmbeddingDim)
-Cross-package deps: LLama, ECAssistant.LLM.Config
+Cross-package deps: LLama, ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
+
+### Record: RuntimeAsset
+> One downloadable archive belonging to a backend runtime.
+Constructor:
+  - RuntimeAsset(string Url, string Sha256)
 
 ### Record: SessionStatusInfo
 > Registry of all client sessions across the server.

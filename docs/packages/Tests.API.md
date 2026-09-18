@@ -1,8 +1,11 @@
 # Tests.API.md
 
-Types: 31  |  LOC: 2852  |  ~1472 tokens
+Types: 34  |  LOC: 3026  |  ~1548 tokens
 
 ---
+
+### Class: BackendSelectorTests
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, Xunit
 
 ### Class: ChatCompletionTests
 > Tests for OpenAI-compatible chat completions (streaming + non-streaming),
@@ -102,6 +105,9 @@ Constructor:
   - RoutingTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
+### Class: RuntimeLocatorTests
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
+
 ### Class: SecurityHarness
 > Lightweight server harness for auth/security tests.
 Implements: IDisposable
@@ -138,6 +144,9 @@ Cross-package deps: ECAssistant.LLM.Server
 ### Class: StructuredDecoderTests
 > v13 structured decision envelope decoding.
 Cross-package deps: ECAssistant.LLM.Engine, Xunit
+
+### Class: TernaryModelDetectorTests
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
 
 ### Class: TestServerFixture
 > Shared integration-test fixture. Starts the real ECAssistantLLM HTTP server

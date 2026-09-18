@@ -1,16 +1,20 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-02T09:12:07.648576+00:00
-Packages: 2  |  Types: 124
+Generated: 2026-09-18T09:57:27.443953+00:00
+Packages: 2  |  Types: 141
 
 ---
 
-## ECAssistantLLM (93 types, ~6175 LOC)
+## ECAssistantLLM (107 types, ~7019 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
 - 🔵 ILogger  (ECAssistantLLM)
+- 🔵 IProcessModelHost  (ECAssistantLLM)
 - 🔵 IRequestRouter  (ECAssistantLLM)
+- 🟡 BackendSelector  (ECAssistantLLM)
+- 🟡 BackendSelectorTests  (ECAssistantLLM)
+- 🟡 BackendsSection  (ECAssistantLLM)
 - 🟡 ChatCompletionChunk  (ECAssistantLLM)
 - 🟡 ChatCompletionRequest  (ECAssistantLLM)
 - 🟡 ChatCompletionTests  (ECAssistantLLM)  deps: [TestServerFixture]
@@ -50,7 +54,7 @@ Packages: 2  |  Types: 124
 - 🟡 InferenceScheduler : IInferenceScheduler  (ECAssistantLLM)  deps: [ILogger]
 - 🟡 InvalidDecisionException : Exception  (ECAssistantLLM)  deps: [string]
 - 🟡 KvCacheTests  (ECAssistantLLM)  deps: [TestServerFixture]
-- 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =]
+- 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =, IProcessModelHost? processModelHost =]
 - 🟡 LlmServerConfig  (ECAssistantLLM)
 - 🟡 LlmServerConfigTests : IDisposable  (ECAssistantLLM)
 - 🟡 LlmServerInfo  (ECAssistantLLM)
@@ -65,15 +69,23 @@ Packages: 2  |  Types: 124
 - 🟡 ModelSlot : IDisposable  (ECAssistantLLM)  deps: [string, ModelConfig, ILogger, string]
 - 🟡 ModelsTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 MtmdMarkerResolver  (ECAssistantLLM)
-- 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger, string]
+- 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger, string, BackendSelector? backendSelector =]
+- 🟡 PlatformDetector  (ECAssistantLLM)
+- 🟡 PlatformRuntimeCatalog  (ECAssistantLLM)
 - 🟡 PrefillRequest  (ECAssistantLLM)
 - 🟡 PrefillResponse  (ECAssistantLLM)
+- 🟡 ProcessModelHost : IProcessModelHost, IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger, string, PlatformRuntimeCatalog? catalog =]
+- 🟡 ProcessModelInstance : IDisposable  (ECAssistantLLM)  deps: [ModelConfig, string, int, ILogger]
 - 🟡 PromptCacheSession : IDisposable  (ECAssistantLLM)  deps: [string, LLamaWeights, ModelParams, ILogger]
 - 🟡 PromptCacheSessionManager : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, ILogger]
-- 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource]
+- 🟡 ProxyRequestHandler  (ECAssistantLLM)
+- 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource, IProcessModelHost? processHost =]
 - 🟡 RewindResponse  (ECAssistantLLM)
 - 🟡 RouteMethodTests  (ECAssistantLLM)
 - 🟡 RoutingTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟣 RuntimeAsset  (ECAssistantLLM)  deps: [string, string]
+- 🟡 RuntimeLocator  (ECAssistantLLM)
+- 🟡 RuntimeLocatorTests  (ECAssistantLLM)
 - 🟡 SecurityHarness : IDisposable  (ECAssistantLLM)
 - 🟡 ServerCollection : TestServerFixture>  (ECAssistantLLM)
 - 🟡 ServerLogTests  (ECAssistantLLM)  deps: [TestServerFixture]
@@ -89,6 +101,8 @@ Packages: 2  |  Types: 124
 - 🟡 StructuredDecoder  (ECAssistantLLM)
 - 🟡 StructuredDecoderTests  (ECAssistantLLM)
 - 🟡 SuccessResponse  (ECAssistantLLM)
+- 🟡 TernaryModelDetector  (ECAssistantLLM)
+- 🟡 TernaryModelDetectorTests  (ECAssistantLLM)
 - 🟡 TestServerFixture : IAsyncLifetime  (ECAssistantLLM)
 - 🟡 ThinkFilter  (ECAssistantLLM)
 - 🟡 ThinkFilterTests  (ECAssistantLLM)
@@ -101,8 +115,9 @@ Packages: 2  |  Types: 124
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 
-## Tests (31 types, ~2852 LOC)
+## Tests (34 types, ~3026 LOC)
 
+- 🟡 BackendSelectorTests  (Tests)
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ChatMessageContentConverterTests  (Tests)
 - 🟡 ClientAuthTests  (Tests)
@@ -121,6 +136,7 @@ Packages: 2  |  Types: 124
 - 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
 - 🟡 RouteMethodTests  (Tests)
 - 🟡 RoutingTests  (Tests)  deps: [TestServerFixture]
+- 🟡 RuntimeLocatorTests  (Tests)
 - 🟡 SecurityHarness : IDisposable  (Tests)
 - 🟡 ServerCollection : TestServerFixture>  (Tests)
 - 🟡 ServerLogTests  (Tests)  deps: [TestServerFixture]
@@ -128,6 +144,7 @@ Packages: 2  |  Types: 124
 - 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SseStreamerTests : IDisposable  (Tests)
 - 🟡 StructuredDecoderTests  (Tests)
+- 🟡 TernaryModelDetectorTests  (Tests)
 - 🟡 TestServerFixture : IAsyncLifetime  (Tests)
 - 🟡 ThinkFilterTests  (Tests)
 - 🟡 TokenizeTests  (Tests)  deps: [TestServerFixture]

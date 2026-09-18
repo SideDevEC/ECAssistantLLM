@@ -1,7 +1,7 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantLLM
 
-Generated: 2026-09-02T09:12:07.648944+00:00
-Edges: 22  |  Packages: 2
+Generated: 2026-09-18T09:57:27.444591+00:00
+Edges: 25  |  Packages: 2
 
 ---
 
@@ -17,6 +17,9 @@ Edges: 22  |  Packages: 2
 - LlmHttpServer ──uses──► ILogger (ECAssistantLLM)
 - ModelSlot ──uses──► ILogger (ECAssistantLLM)
 - MultiModelHost ──uses──► ILogger (ECAssistantLLM)
+- ProcessModelHost ──implements──► IProcessModelHost (ECAssistantLLM)
+- ProcessModelHost ──uses──► ILogger (ECAssistantLLM)
+- ProcessModelInstance ──uses──► ILogger (ECAssistantLLM)
 - PromptCacheSession ──uses──► ILogger (ECAssistantLLM)
 - PromptCacheSessionManager ──uses──► ILogger (ECAssistantLLM)
 - RequestRouter ──implements──► IRequestRouter (ECAssistantLLM)
