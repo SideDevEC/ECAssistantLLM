@@ -169,7 +169,7 @@ public sealed class ProcessSession : IDisposable
         var maxTokens = grammar != null
             ? Math.Clamp(Math.Min(request.MaxTokens ?? 256, 256), 1, 256)
             : ClampMaxTokens(request.MaxTokens);
-        var payload = BuildChatPayload(messages, maxTokens, grammar);
+        var payload = BuildChatPayload(messages, maxTokens, grammar, request);
 
         var deltas = StreamDeltasAsync(payload, ct);
         var replySb = new StringBuilder();
@@ -304,58 +304,17 @@ public sealed class ProcessSession : IDisposable
 
     // ── Transport ───────────────────────────────────────
 
-    internal JsonObject BuildChatPayload(IReadOnlyList<ChatMessage> turn, int maxTokens, string? grammar = null)
+    internal JsonObject BuildChatPayload(IReadOnlyList<ChatMessage> turn, int maxTokens, string? grammar = null, ChatCompletionRequest? sampling = null)
     {
-        var messages = new JsonArray();
+        // Prefix + history + turn — transcript-backed: the child's slot/prefix cache
+        // absorbs the re-prefill of the shared prefix.
+        var all = new List<ChatMessage>(turn.Count + _history.Count + 1);
         if (!string.IsNullOrEmpty(_prefix))
-            messages.Add(BuildOutboundMessage(new ChatMessage { Role = "system", Content = _prefix }));
-        foreach (var msg in _history)
-            messages.Add(BuildOutboundMessage(msg));
-        foreach (var msg in turn)
-            messages.Add(BuildOutboundMessage(msg));
+            all.Add(new ChatMessage { Role = "system", Content = _prefix });
+        all.AddRange(_history);
+        all.AddRange(turn);
 
-        var payload = new JsonObject
-        {
-            ["model"] = ModelId,
-            ["messages"] = messages,
-            ["stream"] = true, // always stream internally — uniform parsing path
-            ["max_tokens"] = maxTokens,
-        };
-
-        if (grammar != null)
-        {
-            // Grammar-constrained decoding on the child. enable_thinking=false keeps the
-            // constrained output in `content` — with thinking enabled the chat template
-            // routes the envelope into reasoning_content and pads content with whitespace
-            // (verified empirically on the Prism runtime, 2026-09-19).
-            payload["grammar"] = grammar;
-            payload["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = false };
-        }
-
-        return payload;
-    }
-
-    /// <summary>Serializes one message; image parts become base64 data-URI image_url entries.</summary>
-    private static JsonNode BuildOutboundMessage(ChatMessage msg)
-    {
-        if (!msg.HasImages)
-            return new JsonObject { ["role"] = msg.Role, ["content"] = msg.Content };
-
-        var parts = new JsonArray();
-        if (msg.Content.Length > 0)
-            parts.Add(new JsonObject { ["type"] = "text", ["text"] = msg.Content });
-        foreach (var img in msg.Images)
-        {
-            parts.Add(new JsonObject
-            {
-                ["type"] = "image_url",
-                ["image_url"] = new JsonObject
-                {
-                    ["url"] = $"data:{img.MimeType};base64,{Convert.ToBase64String(img.Data)}"
-                }
-            });
-        }
-        return new JsonObject { ["role"] = msg.Role, ["content"] = parts };
+        return ProcessPayloadFactory.Build(ModelId, all, maxTokens, sampling, grammar, stream: true);
     }
 
     private async Task<HttpResponseMessage> PostChatAsync(JsonObject payload, bool stream, CancellationToken ct)
@@ -394,7 +353,7 @@ public sealed class ProcessSession : IDisposable
     }
 
     /// <summary>Extracts choices[0].delta.content (or choices[0].message.content) from one SSE chunk.</summary>
-    private static string? ExtractDeltaContent(string json)
+    internal static string? ExtractDeltaContent(string json)
     {
         try
         {

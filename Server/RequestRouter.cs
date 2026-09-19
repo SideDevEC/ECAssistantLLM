@@ -26,6 +26,7 @@ public sealed class RequestRouter : IRequestRouter
     private readonly PromptCacheSessionManager _promptCache;
     private readonly IProcessModelHost? _processHost;
     private readonly ProcessSessionRegistry? _processSessions;
+    private readonly ProcessStatelessClient? _processStateless;
     private readonly BackendSelector _backendSelector = new();
 
     /// <summary>
@@ -64,6 +65,7 @@ public sealed class RequestRouter : IRequestRouter
         _cts = cts;
         _processHost = processHost;
         _processSessions = processSessions;
+        _processStateless = processHost != null ? new ProcessStatelessClient(processHost) : null;
         _promptCache = new PromptCacheSessionManager(models, logger);
     }
 
@@ -252,6 +254,61 @@ public sealed class RequestRouter : IRequestRouter
     /// </summary>
     private async Task HandleProcessModelChatAsync(HttpListenerContext ctx, ChatCompletionRequest req, string clientId, byte[]? rawBody, CancellationToken ct)
     {
+        // v14.8.4: 100% parity — stateless process requests no longer raw-proxy; they run
+        // through the same code shapes as in-process stateless (ThinkFilter, same response
+        // objects, structured support). Only unhandled paths keep raw 1:1 passthrough.
+        if (req.SessionId == null && !req.Structured)
+        {
+            if (_processStateless == null)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
+                return;
+            }
+
+            if (req.Messages.Count == 0)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "messages is required", Type = "invalid_request" } }, 400);
+                return;
+            }
+
+            var maxTokens = Math.Clamp(req.MaxTokens ?? 512, 1, MaxInferenceTokens);
+            if (req.Stream)
+            {
+                var tokenStream = ThinkFilter.ApplyAsync(
+                    _processStateless.InferStatelessAsync(req.Model, req.Messages, req, grammar: null, maxTokens, ct), ct);
+                await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
+            }
+            else
+            {
+                var sb = new StringBuilder();
+                await foreach (var token in ThinkFilter.ApplyAsync(
+                    _processStateless.InferStatelessAsync(req.Model, req.Messages, req, grammar: null, maxTokens, ct), ct))
+                    sb.Append(token);
+
+                var response = new
+                {
+                    id = Guid.NewGuid().ToString("N"),
+                    @object = "chat.completion",
+                    created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    model = req.Model,
+                    choices = new[]
+                    {
+                        new
+                        {
+                            index = 0,
+                            message = new { role = "assistant", content = sb.ToString() },
+                            finish_reason = "stop"
+                        }
+                    }
+                };
+                await SseStreamer.WriteJsonAsync(ctx.Response, response);
+            }
+            return;
+        }
+
+        // Stateless 1:1 proxy remains only for non-chat/unhandled shapes (defense).
         if (req.SessionId == null)
         {
             var baseUrl = await EnsureProcessBaseAsync(req.Model, ct);
@@ -265,26 +322,12 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        // Structured mode: grammar-constrained decision envelope via the child's native
+        // Structured mode — grammar-constrained decision envelope via the child's native
         // GBNF support (grammar + enable_thinking=false). Envelope early-stop mirrors the
         // in-process loop — break the stream as soon as the JSON is complete and valid;
-        // disposing the child stream stops the generation. Stateless process requests are
-        // still raw 1:1 passthrough (structured without a session → 400).
+        // disposing the child stream stops the generation.
         if (req.Structured)
         {
-            if (req.SessionId == null)
-            {
-                await SseStreamer.WriteJsonAsync(ctx.Response,
-                    new ErrorResponse { Error = new() { Message = $"Structured mode requires a session_id for process-backend model '{req.Model}'.", Type = "not_supported" } }, 400);
-                return;
-            }
-
-            var structuredSession = _processSessions?.Get(clientId, req.SessionId);
-            if (structuredSession == null)
-            {
-                await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
-                return;
-            }
             if (req.Messages.Count == 0)
             {
                 await SseStreamer.WriteJsonAsync(ctx.Response,
@@ -293,10 +336,37 @@ public sealed class RequestRouter : IRequestRouter
             }
 
             var structuredSw = System.Diagnostics.Stopwatch.StartNew();
-            _logger.Info("Router", $"[Structured/process] generation start (session={req.SessionId}, model={req.Model}, max_tokens={req.MaxTokens})");
             var structuredSb = new StringBuilder();
             var earlyStop = false;
-            await foreach (var token in structuredSession.InferAsync(req.Messages, req, ct, grammar: DecisionGrammar.Gbnf))
+            IAsyncEnumerable<string> structuredStream;
+            string sessionIdLabel;
+            if (req.SessionId != null)
+            {
+                var structuredSession = _processSessions?.Get(clientId, req.SessionId);
+                if (structuredSession == null)
+                {
+                    await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
+                    return;
+                }
+                structuredStream = structuredSession.InferAsync(req.Messages, req, ct, grammar: DecisionGrammar.Gbnf);
+                sessionIdLabel = req.SessionId;
+            }
+            else
+            {
+                if (_processStateless == null)
+                {
+                    await SseStreamer.WriteJsonAsync(ctx.Response,
+                        new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
+                    return;
+                }
+                var structuredMaxTokens = Math.Clamp(Math.Min(req.MaxTokens ?? 256, 256), 1, 256);
+                structuredStream = _processStateless.InferStatelessAsync(
+                    req.Model, req.Messages, req, grammar: DecisionGrammar.Gbnf, structuredMaxTokens, ct);
+                sessionIdLabel = "stateless";
+            }
+
+            _logger.Info("Router", $"[Structured/process] generation start (session={sessionIdLabel}, model={req.Model}, max_tokens={req.MaxTokens})");
+            await foreach (var token in structuredStream)
             {
                 structuredSb.Append(token);
                 if (TryParseCompleteEnvelope(structuredSb.ToString(), out _))
