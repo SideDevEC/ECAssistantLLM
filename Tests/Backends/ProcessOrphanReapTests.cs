@@ -18,8 +18,6 @@ public sealed class ProcessOrphanReapTests : IDisposable
     private readonly string _dir;
     private readonly ILogger _logger = new ServerLogger(LogLevel.Error);
 
-    private static bool IsWindows => OperatingSystem.IsWindows();
-
     public ProcessOrphanReapTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "orphan-tests-" + Guid.NewGuid().ToString("N")[..8]);
@@ -48,7 +46,7 @@ public sealed class ProcessOrphanReapTests : IDisposable
     [Fact]
     public void ReapOrphan_DeadPid_DeletesFile()
     {
-        if (IsWindows) return; // /bin/sleep is unix-only; cross-OS coverage on ubuntu/macos runners
+        if (OperatingSystem.IsWindows()) return; // /bin/sleep is unix-only; cross-OS coverage on ubuntu/macos runners
 
         using var proc = StartSleep();
         var pid = proc.Id;
@@ -72,7 +70,7 @@ public sealed class ProcessOrphanReapTests : IDisposable
     [Fact]
     public void ReapOrphan_RecycledPid_NeverKillsUnrelatedProcess()
     {
-        if (IsWindows) return; // /bin/sleep is unix-only; cross-OS coverage on ubuntu/macos runners
+        if (OperatingSystem.IsWindows()) return; // /bin/sleep is unix-only; cross-OS coverage on ubuntu/macos runners
 
         // Live process whose real name (sleep) does NOT match the recorded name
         // (simulates PID reuse) — the reap must leave it alive and clean the file.
@@ -89,7 +87,7 @@ public sealed class ProcessOrphanReapTests : IDisposable
     [Fact]
     public void ReapOrphan_MatchingBinaryName_KillsOrphan()
     {
-        if (IsWindows) return; // /bin/sleep is unix-only; cross-OS coverage on ubuntu/macos runners
+        if (OperatingSystem.IsWindows()) return; // /bin/sleep is unix-only; cross-OS coverage on ubuntu/macos runners
 
         // A real process whose binary name matches the record — the orphan-reap must
         // kill it (this is the llama-server-left-behind scenario).

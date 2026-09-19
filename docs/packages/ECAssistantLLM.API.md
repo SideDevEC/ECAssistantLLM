@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 114  |  LOC: 8307  |  ~4940 tokens
+Types: 114  |  LOC: 8306  |  ~4940 tokens
 
 ---
 

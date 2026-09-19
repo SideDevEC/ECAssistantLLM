@@ -1,16 +1,9 @@
 {
   "project": "ECAssistantLLM",
-  "timestamp": "2026-09-19T10:53:59.655804+00:00",
-  "total_violations": 1,
-  "errors": 1,
+  "timestamp": "2026-09-19T10:54:38.844311+00:00",
+  "total_violations": 0,
+  "errors": 0,
   "warnings": 0,
-  "violations": [
-    {
-      "rule": "no-statics",
-      "severity": "error",
-      "file": "Tests/Backends/ProcessOrphanReapTests.cs",
-      "message": "Static mutable field found in ProcessOrphanReapTests: static bool IsWindows ="
-    }
-  ],
-  "passed": false
+  "violations": [],
+  "passed": true
 }
