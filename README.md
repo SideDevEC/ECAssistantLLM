@@ -57,6 +57,8 @@ ECAssistantLLM is a self-contained HTTP server that wraps [LLamaSharp](https://g
 | `MultiModelHost` | Manages loaded models, GPU layers, VRAM budget |
 | `InferenceScheduler` | Queues and dispatches inference requests |
 | `SessionRegistry` | Per-client KV cache sessions with prompt caching |
+| `ProcessModelHost` | Child llama-server supervision for ternary/external models (Bonsai) |
+| `ProcessSessionRegistry` | Transcript-backed sessions for process models — same client-facing behavior as KV sessions |
 | `ClientManager` | Client registration, heartbeat, last-client shutdown |
 | `StructuredDecoder` | GBNF grammar-constrained JSON decoding |
 | `VramBudget` | GPU memory budget enforcement across models |

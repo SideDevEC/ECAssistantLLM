@@ -1,17 +1,19 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-18T09:57:27.443953+00:00
-Packages: 2  |  Types: 141
+Generated: 2026-09-19T07:34:50.965472+00:00
+Packages: 2  |  Types: 148
 
 ---
 
-## ECAssistantLLM (107 types, ~7019 LOC)
+## ECAssistantLLM (112 types, ~7822 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
 - 🔵 ILogger  (ECAssistantLLM)
 - 🔵 IProcessModelHost  (ECAssistantLLM)
 - 🔵 IRequestRouter  (ECAssistantLLM)
+- 🟡 BackendPortAllocator  (ECAssistantLLM)  deps: [BackendsSection, Random? random =]
+- 🟡 BackendPortAllocatorTests  (ECAssistantLLM)
 - 🟡 BackendSelector  (ECAssistantLLM)
 - 🟡 BackendSelectorTests  (ECAssistantLLM)
 - 🟡 BackendsSection  (ECAssistantLLM)
@@ -26,7 +28,7 @@ Packages: 2  |  Types: 141
 - 🟡 ClientAuthTests  (ECAssistantLLM)
 - 🟣 ClientInfo  (ECAssistantLLM)  deps: [string, string, string, DateTime, DateTime, int]
 - 🟡 ClientManagementTests  (ECAssistantLLM)  deps: [TestServerFixture]
-- 🟡 ClientManager : IClientManager, IDisposable  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action]
+- 🟡 ClientManager : IClientManager, IDisposable  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action, SessionRegistry, LlmServerConfig, ILogger, Action, ProcessSessionRegistry]
 - 🟡 ClientRegisterRequest  (ECAssistantLLM)
 - 🟡 ClientRegisterResponse  (ECAssistantLLM)
 - 🟡 CompletionChoice  (ECAssistantLLM)
@@ -54,7 +56,7 @@ Packages: 2  |  Types: 141
 - 🟡 InferenceScheduler : IInferenceScheduler  (ECAssistantLLM)  deps: [ILogger]
 - 🟡 InvalidDecisionException : Exception  (ECAssistantLLM)  deps: [string]
 - 🟡 KvCacheTests  (ECAssistantLLM)  deps: [TestServerFixture]
-- 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =, IProcessModelHost? processModelHost =]
+- 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =, IProcessModelHost? processModelHost =, ProcessSessionRegistry? processSessionRegistry =]
 - 🟡 LlmServerConfig  (ECAssistantLLM)
 - 🟡 LlmServerConfigTests : IDisposable  (ECAssistantLLM)
 - 🟡 LlmServerInfo  (ECAssistantLLM)
@@ -76,10 +78,13 @@ Packages: 2  |  Types: 141
 - 🟡 PrefillResponse  (ECAssistantLLM)
 - 🟡 ProcessModelHost : IProcessModelHost, IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger, string, PlatformRuntimeCatalog? catalog =]
 - 🟡 ProcessModelInstance : IDisposable  (ECAssistantLLM)  deps: [ModelConfig, string, int, ILogger]
+- 🟡 ProcessSession : IDisposable  (ECAssistantLLM)  deps: [string, string, ModelConfig, IProcessModelHost, HttpClient, ILogger]
+- 🟡 ProcessSessionRegistry : IDisposable  (ECAssistantLLM)  deps: [IProcessModelHost, LlmServerConfig, ILogger, Func]
+- 🟡 ProcessSessionRegistryTests  (ECAssistantLLM)
 - 🟡 PromptCacheSession : IDisposable  (ECAssistantLLM)  deps: [string, LLamaWeights, ModelParams, ILogger]
 - 🟡 PromptCacheSessionManager : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, ILogger]
 - 🟡 ProxyRequestHandler  (ECAssistantLLM)
-- 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource, IProcessModelHost? processHost =]
+- 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource, IProcessModelHost? processHost =, ProcessSessionRegistry? processSessions =]
 - 🟡 RewindResponse  (ECAssistantLLM)
 - 🟡 RouteMethodTests  (ECAssistantLLM)
 - 🟡 RoutingTests  (ECAssistantLLM)  deps: [TestServerFixture]
@@ -115,8 +120,9 @@ Packages: 2  |  Types: 141
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 
-## Tests (34 types, ~3026 LOC)
+## Tests (36 types, ~3203 LOC)
 
+- 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ChatMessageContentConverterTests  (Tests)
@@ -134,6 +140,7 @@ Packages: 2  |  Types: 141
 - 🟡 ModelPathPolicyTests  (Tests)
 - 🟡 ModelPathRestrictionTests : IDisposable  (Tests)
 - 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ProcessSessionRegistryTests  (Tests)
 - 🟡 RouteMethodTests  (Tests)
 - 🟡 RoutingTests  (Tests)  deps: [TestServerFixture]
 - 🟡 RuntimeLocatorTests  (Tests)

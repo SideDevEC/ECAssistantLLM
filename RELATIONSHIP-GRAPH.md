@@ -1,13 +1,14 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantLLM
 
-Generated: 2026-09-18T09:57:27.444591+00:00
-Edges: 25  |  Packages: 2
+Generated: 2026-09-19T07:34:50.965936+00:00
+Edges: 30  |  Packages: 2
 
 ---
 
 ## ECAssistantLLM
 
 - ClientManager ──implements──► IClientManager (ECAssistantLLM)
+- ClientManager ──uses──► ILogger (ECAssistantLLM)
 - ClientManager ──uses──► ILogger (ECAssistantLLM)
 - ClientManager ──uses──► ILogger (ECAssistantLLM)
 - InferenceScheduler ──implements──► IInferenceScheduler (ECAssistantLLM)
@@ -20,6 +21,10 @@ Edges: 25  |  Packages: 2
 - ProcessModelHost ──implements──► IProcessModelHost (ECAssistantLLM)
 - ProcessModelHost ──uses──► ILogger (ECAssistantLLM)
 - ProcessModelInstance ──uses──► ILogger (ECAssistantLLM)
+- ProcessSession ──uses──► ILogger (ECAssistantLLM)
+- ProcessSession ──uses──► IProcessModelHost (ECAssistantLLM)
+- ProcessSessionRegistry ──uses──► ILogger (ECAssistantLLM)
+- ProcessSessionRegistry ──uses──► IProcessModelHost (ECAssistantLLM)
 - PromptCacheSession ──uses──► ILogger (ECAssistantLLM)
 - PromptCacheSessionManager ──uses──► ILogger (ECAssistantLLM)
 - RequestRouter ──implements──► IRequestRouter (ECAssistantLLM)

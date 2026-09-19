@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-09-02 (v14.7 — early termination on envelope completion, max_tokens 256)
+**Updated:** 2026-09-19 (v14.7.x — process-backend sessions: Bonsai/ternary models gain full session parity; random backend port range 20000-25000)
 **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview
@@ -51,9 +51,21 @@ ECAssistantLLM/                 # 22 .cs files, ~2,537 LOC
 │    ├── LlmServerConfig.cs     # Root config: Load/TryLoad + Validate; static JsonOptions
 │    └── Models/                # Config section models
 │        ├── ServerSection.cs    # host, port, max_sessions, max_vram_mb, heartbeat_* + computed Prefix
-│        ├── ModelConfig.cs      # id, path, gpu_layers, context_size, threads, batch_size, is_embedding, pooling_type
+│        ├── ModelConfig.cs      # id, path, gpu_layers, context_size, threads, batch_size, is_embedding, backend (auto|llamasharp|process)
+│        ├── BackendsSection.cs  # backends_root, models_root, port_min/port_max (backend child processes)
 │        ├── InferenceDefaults.cs# max_tokens, temperature, top_p, top_k, repeat_penalty
 │        └── LoggingSection.cs   # level, file
+│
+├── Engine/Backends/            # Process backend (ternary/external models via child llama-server)
+│    ├── TernaryModelDetector.cs # GGUF header sniff: ternary-packed (PTQ1_0/PQ2_0) → Process backend
+│    ├── BackendSelector.cs      # ModelBackendKind per model: ternary → Process; explicit backend field overrides
+│    ├── BackendPortAllocator.cs  # Random port from configurable range (default 20000-25000), skips used
+│    ├── RuntimeManifest.cs / PlatformId.cs / PlatformRuntimeCatalog.cs / RuntimeLocator.cs  # pre-installed Prism llama.cpp runtimes (NEVER downloaded at runtime)
+│    ├── IProcessModelHost.cs    # DI seam over the process host
+│    ├── ProcessModelInstance.cs # One llama-server child process: spawn, health check, stop
+│    ├── ProcessModelHost.cs     # Supervises child processes; lazy start, race-safe; stateless proxy endpoint
+│    ├── ProcessSession.cs       # Transcript-backed session for process models (session parity, prefix cache)
+│    └── ProcessSessionRegistry.cs # Client-namespaced process sessions; mirrors SessionRegistry API
 │
 ├── Engine/                    # Core engine (owns LLamaSharp types)
 │    ├── MultiModelHost.cs       # Loads/unloads 2+ models; provides slots by ID; ModelInfo record
@@ -97,6 +109,12 @@ Server/LlmHttpServer  ──►  Server/RequestRouter
    │   Engine/SessionRegistry ──► Engine/SessionContext ──► LLamaSharp
    │        │                    (InteractiveExecutor, KV cache, LLamaContext)
    │        ▼
+   │   Engine/Backends/ProcessSessionRegistry ──► ProcessSession ──► HttpClient
+   │        │                     (transcript-backed; child llama-server slot KV/prefix cache)
+   │        ▼
+   │   Engine/Backends/ProcessModelHost ──► ProcessModelInstance ──► llama-server child
+   │        │                     (ternary/Bonsai; random port via BackendPortAllocator)
+   │        ▼
    │   Engine/InferenceScheduler  (SemaphoreSlim gate — one inference at a time)
    │   Engine/VramBudget          (per-session VRAM accounting)
    │   Engine/ClientManager       (registration / heartbeat / eviction)
@@ -123,6 +141,24 @@ for `NullLogger<T>` used to silence LLamaSharp's own logging). The HTTP layer ad
 | `VramBudget` | Lock-guarded estimated-VRAM accounting; `TryReserve`/`Release`; `null` max = unlimited |
 | `ClientManager` | Client registration (UUID id), heartbeat recording, disconnect (frees all client sessions), and a `Timer`-driven eviction of stale clients |
 | `PromptCacheSession` | Persistent warm prompt-cache per model using only supported `SaveState`/`LoadState` snapshots on fresh executors. Reuse paths: growth (suffix decode) → stable-template checkpoint → cold. Runs only when `RequestRouter.EnableWarmPromptCache = true` |
+
+### Engine/Backends (process backend — ternary/external models)
+
+| Component | Purpose |
+|---|---|
+| `TernaryModelDetector` | Sniffs GGUF headers (PTQ1_0/PQ2_0 ternary packing); stateless utility |
+| `BackendSelector` | Resolves `ModelBackendKind` per model: ternary → Process; explicit `backend` field overrides; default LlamaSharp |
+| `BackendPortAllocator` | Random port from configurable range (default 20000–25000) for child llama-server processes; skips used; throws when exhausted |
+| `RuntimeManifest` / `PlatformId` / `PlatformRuntimeCatalog` / `RuntimeLocator` | Pre-installed Prism llama.cpp runtimes per OS; the server NEVER downloads — missing pieces are hard errors pointing to the setup wizard |
+| `IProcessModelHost` | DI seam: `EnsureStartedAsync(config)`, `EnsureStartedUrlAsync(modelId)`, `Instances`, `StopAllAsync` |
+| `ProcessModelInstance` | One llama-server child: spawn, 120 s health wait, graceful stop, dispose; OpenAI-compatible endpoint on its port |
+| `ProcessModelHost` | Supervises child processes; per-model lazy start with in-flight gate (race-safe); used for 1:1 stateless proxying |
+| `ProcessSession` | Transcript-backed session for process models. Mirrors `SessionContext` contract: `PrefillAsync` (warms child's prefix cache with dummy user turn — Qwen templates reject system-only), `InferAsync` (streams content deltas; failed turns roll back appended messages), `SaveState`/`RewindAsync`/`Reset` (transcript snapshots under an IO lock). Efficiency comes from the child's slot KV/prefix cache; correctness never depends on it. `EstimatedVramMb = 0` — KV lives in the child |
+| `ProcessSessionRegistry` | Client-namespaced process sessions; same API/contract as `SessionRegistry` (MaxSessions enforced, no VramBudget) |
+
+**Client-facing parity:** `session_id` on a process model goes through `ProcessSessionRegistry` —
+create/prefill/rewind/save-state/reset/status/destroy + streaming chat behave identically to
+in-process KV sessions. Structured mode (grammar-enforced) stays LlamaSharp-only → clean 400.
 
 ### Server
 
@@ -162,13 +198,13 @@ All requests that touch a session carry an `X-Client-Id` header. JSON is camelCa
 | GET | `/eca/health` | Health: status, version, loaded models, session/client counts, uptime |
 | POST | `/eca/clients` | Register a client → returns `client_id` (UUID) + server version |
 | POST | `/eca/clients/{id}/heartbeat` | Record heartbeat (with `active_sessions`); returns live session count |
-| DELETE | `/eca/clients/{id}` | Disconnect client → frees all its sessions |
+| DELETE | `/eca/clients/{id}` | Disconnect client → frees all its sessions (in-process AND process-backed) |
 | POST | `/eca/sessions` | Create a session (own KV cache); checks `MaxSessions` + VRAM budget (503 if over) |
 | POST | `/eca/sessions/{id}/prefill` | Prefill a static prefix into the session's KV cache |
 | POST | `/eca/sessions/{id}/rewind` | Rewind KV cache to the last saved state |
 | POST | `/eca/sessions/{id}/save-state` | Snapshot current KV cache state |
-| POST | `/eca/sessions/{id}/reset` | Discard + recreate the KV cache (caller must re-prefill) |
-| GET | `/eca/sessions/{id}/status` | Session status: model, prefilled, token count, context, VRAM, timestamps |
+| POST | `/eca/sessions/{id}/reset` | Discard + recreate the KV cache (caller must re-prefill). Process models: transcript reset |
+| GET | `/eca/sessions/{id}/status` | Session status: model, prefilled, token count, context, VRAM, timestamps. Works for process sessions too (VRAM = 0) |
 | DELETE | `/eca/sessions/{id}` | Destroy a session → frees KV cache + releases VRAM |
 | GET | `/eca/models` | List all model slots with status (raw `ModelInfo` shape) |
 | POST | `/eca/models/load` | Load a model at runtime (`id`, `path`, gpu_layers, context_size, threads, is_embedding) |
@@ -226,6 +262,12 @@ executable). `Validate` enforces: port 1–65535, ≥1 model, unique non-empty m
     "max_tokens": 512, "temperature": 0.3, "top_p": 0.95,
     "top_k": 40, "repeat_penalty": 1.1
   },
+  "backends": {
+    "backends_root": "backends",       // pre-installed Prism llama.cpp runtimes
+    "models_root": "models",
+    "port_min": 20000,                 // random port range for child llama-server processes
+    "port_max": 25000
+  },
   "logging": { "level": "info", "file": "ecassistant-llm.log" }
 }
 ```
@@ -233,7 +275,8 @@ executable). `Validate` enforces: port 1–65535, ≥1 model, unique non-empty m
 Section semantics:
 
 - **`server`** — binding (`host`/`port` → computed `Prefix`), session cap, VRAM budget, heartbeat cadence. `gpu_layers`, `threads`, `batch_size` are **server-side** concerns (not in Core config). `--port <N>` on the CLI overrides `server.port` after config load.
-- **`models`** — one `ModelConfig` each. `gpu_layers` is clamped to `[0,100]`; `threads: -1` → auto; `batch_size: 0` → LLamaSharp default. First non-embedding model = **main**; first embedding model = **embeddings**. Embedding models use `pooling_type` (`mean`/`cls`/`last`/`none`, default `mean`). `mmproj_path` (optional) enables vision: MTMD projector loaded lazily from the mmproj GGUF on first vision request (`SupportsVision` = true).
+- **`models`** — one `ModelConfig` each. `gpu_layers` is clamped to `[0,100]`; `threads: -1` → auto; `batch_size: 0` → LLamaSharp default. First non-embedding model = **main**; first embedding model = **embeddings**. Embedding models use `pooling_type` (`mean`/`cls`/`last`/`none`, default `mean`). `mmproj_path` (optional) enables vision: MTMD projector loaded lazily from the mmproj GGUF on first vision request (`SupportsVision` = true). `backend`: `"auto"` (default — ternary-detected GGUF → process), `"llamasharp"`, or `"process"` (external child llama-server). Process models may also carry `download_url`/`download_sha256` for the WIZARD to install weights (the server itself never downloads).
+- **`backends`** — process-backend home (`backends_root`, `models_root`) and the random port range (`port_min`/`port_max`, defaults 20000–25000) for child llama-server processes.
 
 ## Vision (MTMD / mmproj)
 
@@ -288,6 +331,14 @@ Section semantics:
   `copy_cell` passes a byte count to `ggml_view_1d` (expects elements) during recurrent-state
   checkpoint/restore (PR #20700, closed unmerged; see issues #21681/#22384). Revisit when the
   fix lands upstream; until then stateless calls use `StatelessExecutor` cold path.
+
+## Changelog — 2026-09-19 (Process-Backend Sessions)
+
+- **Engine/Backends/**: `ProcessSession` + `ProcessSessionRegistry` — transcript-backed sessions for process models (Bonsai/ternary). Full client-facing parity with in-process KV sessions: `session_id`, prefill, rewind, save-state, reset, status, destroy, streaming chat. Full history re-sent per turn; the child's slot KV/prefix cache absorbs the re-prefill. Failed turns roll back appended messages. No VramBudget (KV lives in the child). Structured mode stays LlamaSharp-only (clean 400).
+- **Engine/Backends/**: `BackendPortAllocator` — child llama-server processes now take random ports from `backends.port_min`/`port_max` (default 20000–25000) instead of the fixed 8500–8599 sweep.
+- **Engine/**: `ClientManager` destroys process sessions on client disconnect/eviction. `IProcessModelHost` gained `EnsureStartedUrlAsync(modelId)`.
+- **E2E VERIFIED** against real Ternary-Bonsai-2-27B (Prism llama-server, Metal): session memory, streaming, rewind, random port range. Two bugs found & fixed (commit-path message loss; template-rejecting prefill warm-up).
+- **LDC**: API-INDEX/RELATIONSHIP-GRAPH regenerated; enforcement PASSED (148 types, 30 edges).
 
 ## Changelog — 2026-08-27 (Vision Fix)
 

@@ -1,8 +1,11 @@
 # Tests.API.md
 
-Types: 34  |  LOC: 3026  |  ~1548 tokens
+Types: 36  |  LOC: 3203  |  ~1629 tokens
 
 ---
+
+### Class: BackendPortAllocatorTests
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
 
 ### Class: BackendSelectorTests
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, Xunit
@@ -94,6 +97,10 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 Constructor:
   - ModelsTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: ProcessSessionRegistryTests
+> Stub host — never starts a real child; url resolution fails fast.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, Xunit
 
 ### Class: RouteMethodTests
 > Lightweight server harness for auth/security tests.

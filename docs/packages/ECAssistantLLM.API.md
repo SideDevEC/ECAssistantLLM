@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 107  |  LOC: 7019  |  ~4409 tokens
+Types: 112  |  LOC: 7822  |  ~4822 tokens
 
 ---
 
@@ -37,6 +37,7 @@ Properties:
   - IReadOnlyList<ProcessModelInstance> Instances { get; set; }
 Methods:
   - Task<ProcessModelInstance> EnsureStartedAsync(ModelConfig config, CancellationToken ct = default)
+  - Task<string> EnsureStartedUrlAsync(string modelId, CancellationToken ct = default)
   - Task StopAllAsync()
 Cross-package deps: ECAssistant.LLM.Config
 
@@ -44,6 +45,15 @@ Cross-package deps: ECAssistant.LLM.Config
 > Interface for routing incoming HTTP requests to the appropriate handler.
 Methods:
   - Task RouteAsync(HttpListenerContext ctx, CancellationToken ct)
+
+### Class: BackendPortAllocator
+> Allocates TCP ports for child llama-server processes from a configurable,
+Constructor:
+  - BackendPortAllocator(BackendsSection backends, Random? random = null)
+Cross-package deps: ECAssistant.LLM.Config
+
+### Class: BackendPortAllocatorTests
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
 
 ### Class: BackendSelector
 > Chooses the execution backend for a model configuration. Ternary-packed models are
@@ -98,7 +108,7 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > Manages client connections: registration, heartbeat, eviction.
 Implements: IClientManager, IDisposable
 Constructor:
-  - ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected)
+  - ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected, Engine.Backends.ProcessSessionRegistry? processSessionRegistry)
 Cross-package deps: ECAssistant.LLM.Interfaces
 
 ### Class: ClientRegisterRequest
@@ -209,7 +219,7 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > Main HTTP server using HttpListener. Routes requests to OpenAI and ECAssistant endpoints.
 Implements: IDisposable
 Constructor:
-  - LlmHttpServer(LlmServerConfig config, MultiModelHost modelHost, SessionRegistry sessionRegistry, IInferenceScheduler scheduler, VramBudget vramBudget, IClientManager clientManager, ILogger logger, CancellationTokenSource? externalCts = null, IProcessModelHost? processModelHost = null)
+  - LlmHttpServer(LlmServerConfig config, MultiModelHost modelHost, SessionRegistry sessionRegistry, IInferenceScheduler scheduler, VramBudget vramBudget, IClientManager clientManager, ILogger logger, CancellationTokenSource? externalCts = null, IProcessModelHost? processModelHost = null, Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null)
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models, ECAssistant.LLM.Server
 
 ### Class: LlmServerConfig
@@ -303,6 +313,24 @@ Constructor:
   - ProcessModelInstance(ModelConfig config, string serverBinaryPath, int port, ILogger logger)
 Cross-package deps: ECAssistant.LLM.Config
 
+### Class: ProcessSession
+> One client session on a Process-backend model (child llama-server).
+Implements: IDisposable
+Constructor:
+  - ProcessSession(string clientId, string sessionId, ModelConfig model, IProcessModelHost host, HttpClient httpClient, ILogger logger)
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Models
+
+### Class: ProcessSessionRegistry
+> Registry of client sessions on Process-backend models (child llama-server).
+Implements: IDisposable
+Constructor:
+  - ProcessSessionRegistry(IProcessModelHost host, LlmServerConfig config, ILogger logger, Func<HttpClient>? httpClientFactory = null)
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Models
+
+### Class: ProcessSessionRegistryTests
+> Stub host — never starts a real child; url resolution fails fast.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, Xunit
+
 ### Class: PromptCacheSession
 > Persistent prompt-cache session reusing warm KV state across stateless/background calls
 Implements: IDisposable
@@ -324,7 +352,7 @@ Cross-package deps: LLama.Common
 > Routes incoming HTTP requests to the appropriate handler.
 Implements: IRequestRouter
 Constructor:
-  - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts, IProcessModelHost? processHost = null)
+  - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts, IProcessModelHost? processHost = null, ProcessSessionRegistry? processSessions = null)
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models
 
 ### Class: RewindResponse
