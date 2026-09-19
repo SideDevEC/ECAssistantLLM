@@ -101,7 +101,10 @@ public sealed class ProcessSession : IDisposable
             _prefix = text;
 
             // Warm the child's KV/prefix cache so the first real turn skips re-prefill.
-            var payload = BuildChatPayload(Array.Empty<ChatMessage>(), maxTokens: 1);
+            // A dummy user turn is required: instruct chat templates (e.g. Qwen) raise
+            // "No user query found" when only a system message is present. The prefix
+            // itself still lands in the child's KV cache — that's what we're warming.
+            var payload = BuildChatPayload(new[] { new ChatMessage { Role = "user", Content = "ok" } }, maxTokens: 1);
             try
             {
                 using var response = await PostChatAsync(payload, stream: false, ct).ConfigureAwait(false);
@@ -196,11 +199,11 @@ public sealed class ProcessSession : IDisposable
 
         var assistantReply = replySb.ToString();
 
-        // Commit the assistant turn to the transcript (unless a concurrent rewind/reset moved it).
+        // Commit the assistant turn to the transcript. The appended user messages stay
+        // (they are part of the conversation); only a FAILED turn rolls them back.
         await _ioLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
-            RemoveAppended(appended, snapshot.Count);
             if (!string.IsNullOrEmpty(assistantReply))
                 _history.Add(new ChatMessage { Role = "assistant", Content = assistantReply });
             if (!string.IsNullOrEmpty(_prefix)) IsPrefilled = true;
