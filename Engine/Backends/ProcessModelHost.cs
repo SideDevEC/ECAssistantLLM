@@ -165,9 +165,18 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
         }
     }
 
-    private string ResolveRootedPath(string relative) => Path.IsPathRooted(relative)
-        ? relative
-        : Path.Combine(_serverRoot, relative);
+    // Root-confinement: absolute config paths are relocated under the server root —
+    // the server never writes outside its root on any OS.
+    private string ResolveRootedPath(string relative)
+    {
+        if (!Path.IsPathRooted(relative))
+            return Path.Combine(_serverRoot, relative);
+
+        var (confined, relocated) = RootPathGuard.EnsureInside(_serverRoot, relative);
+        if (relocated)
+            _logger.Warn("ProcessModelHost", $"Path '{relative}' is outside the server root — relocated to '{confined}'");
+        return confined;
+    }
 
     private static string ResolveModelPath(string configPath, string modelsRoot)
     {

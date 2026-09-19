@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 121  |  LOC: 8786  |  ~5234 tokens
+Types: 123  |  LOC: 8865  |  ~5309 tokens
 
 ---
 
@@ -374,6 +374,14 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 
 ### Class: RewindResponse
 > Generic API error response.
+
+### Class: RootPathGuard
+> Root-confinement guard: the server must never write outside its root directory
+
+### Class: RootPathGuardTests
+> RootPathGuard: paths inside the root pass through; absolute paths outside the
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
 
 ### Class: RouteMethodTests
 > Lightweight server harness for auth/security tests.

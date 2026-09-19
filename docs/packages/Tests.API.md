@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 43  |  LOC: 3944  |  ~2027 tokens
+Types: 44  |  LOC: 3998  |  ~2076 tokens
 
 ---
 
@@ -126,6 +126,11 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECA
 ### Class: ProcessStatelessClientTests
 > Stateless process inference: sampling parity (explicit in-process defaults, never
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, ECAssistant.LLM.Server, Xunit
+
+### Class: RootPathGuardTests
+> RootPathGuard: paths inside the root pass through; absolute paths outside the
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
 
 ### Class: RouteMethodTests
 > Lightweight server harness for auth/security tests.

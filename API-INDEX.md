@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-19T12:22:29.428614+00:00
-Packages: 2  |  Types: 164
+Generated: 2026-09-19T13:01:17.373085+00:00
+Packages: 2  |  Types: 167
 
 ---
 
-## ECAssistantLLM (121 types, ~8786 LOC)
+## ECAssistantLLM (123 types, ~8865 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -93,6 +93,8 @@ Packages: 2  |  Types: 164
 - 🟡 ProxyRequestHandler  (ECAssistantLLM)
 - 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource, IProcessModelHost? processHost =, ProcessSessionRegistry? processSessions =]
 - 🟡 RewindResponse  (ECAssistantLLM)
+- 🟡 RootPathGuard  (ECAssistantLLM)
+- 🟡 RootPathGuardTests : IDisposable  (ECAssistantLLM)
 - 🟡 RouteMethodTests  (ECAssistantLLM)
 - 🟡 RoutingTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟣 RuntimeAsset  (ECAssistantLLM)  deps: [string, string]
@@ -129,7 +131,7 @@ Packages: 2  |  Types: 164
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (43 types, ~3944 LOC)
+## Tests (44 types, ~3998 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -156,6 +158,7 @@ Packages: 2  |  Types: 164
 - 🟡 ProcessSessionRegistryTests  (Tests)
 - 🟡 ProcessSessionStructuredTests  (Tests)
 - 🟡 ProcessStatelessClientTests  (Tests)
+- 🟡 RootPathGuardTests : IDisposable  (Tests)
 - 🟡 RouteMethodTests  (Tests)
 - 🟡 RoutingTests  (Tests)  deps: [TestServerFixture]
 - 🟡 RuntimeLocatorTests  (Tests)

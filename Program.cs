@@ -1,6 +1,7 @@
 using ECAssistant.LLM;
 using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Engine;
+using ECAssistant.LLM.Engine.Backends;
 using ECAssistant.LLM.Server;
 
 // ── Parse args: [--root <dir>] [--port <N>] [path-to-llm-server.json] ──
@@ -77,9 +78,11 @@ var logLevel = config.Logging.Level.ToLowerInvariant() switch
     _ => LogLevel.Info
 };
 
-// Resolve log file path relative to root directory
+// Resolve log file path — ALWAYS confined to the root directory. An absolute path in
+// the config is relocated under the root (root-confinement contract: the server never
+// writes outside its root on any OS).
 var logFilePath = Path.IsPathRooted(config.Logging.File)
-    ? config.Logging.File
+    ? RootPathGuard.EnsureInside(rootDir, config.Logging.File).Path
     : Path.Combine(rootDir, config.Logging.File);
 var logger = new ServerLogger(logLevel, logFilePath);
 
