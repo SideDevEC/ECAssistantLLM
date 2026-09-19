@@ -25,6 +25,7 @@ public sealed class RequestRouter : IRequestRouter
     private readonly CancellationTokenSource _cts;
     private readonly PromptCacheSessionManager _promptCache;
     private readonly IProcessModelHost? _processHost;
+    private readonly ProcessSessionRegistry? _processSessions;
     private readonly BackendSelector _backendSelector = new();
 
     /// <summary>
@@ -50,7 +51,8 @@ public sealed class RequestRouter : IRequestRouter
         LlmServerConfig config,
         ILogger logger,
         CancellationTokenSource cts,
-        IProcessModelHost? processHost = null)
+        IProcessModelHost? processHost = null,
+        ProcessSessionRegistry? processSessions = null)
     {
         _models = models;
         _sessions = sessions;
@@ -61,6 +63,7 @@ public sealed class RequestRouter : IRequestRouter
         _logger = logger;
         _cts = cts;
         _processHost = processHost;
+        _processSessions = processSessions;
         _promptCache = new PromptCacheSessionManager(models, logger);
     }
 
@@ -223,19 +226,12 @@ public sealed class RequestRouter : IRequestRouter
     }
 
     /// <summary>
-    /// When the model is a Process-backend model, proxies the request to the child
-    /// llama-server (or writes a clear error) and returns true (handled).
+    /// Stateless-only proxy for Process-backend models (completions/embeddings —
+    /// no session support needed on these endpoints). Returns true when handled.
     /// </summary>
-    private async Task<bool> TryProxyProcessModelAsync(HttpListenerContext ctx, string? modelId, string? sessionId, byte[]? rawBody, CancellationToken ct)
+    private async Task<bool> TryProxyProcessModelAsync(HttpListenerContext ctx, string? modelId, byte[]? rawBody, CancellationToken ct)
     {
         if (modelId == null || !IsProcessModel(modelId)) return false;
-
-        if (sessionId != null)
-        {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Session state (session_id) is not supported for process-backend model '{modelId}'. Send the full message history instead.", Type = "not_supported" } }, 400);
-            return true;
-        }
 
         var baseUrl = await EnsureProcessBaseAsync(modelId, ct);
         if (baseUrl == null)
@@ -247,6 +243,80 @@ public sealed class RequestRouter : IRequestRouter
 
         await ProxyRequestHandler.ForwardAsync(ctx, baseUrl, rawBody, ct);
         return true;
+    }
+
+    /// <summary>
+    /// Chat completions for a Process-backend model. Stateless requests proxy 1:1 to the
+    /// child llama-server; session requests run through the transcript-backed
+    /// ProcessSession — same client-facing behavior as in-process KV sessions.
+    /// </summary>
+    private async Task HandleProcessModelChatAsync(HttpListenerContext ctx, ChatCompletionRequest req, string clientId, byte[]? rawBody, CancellationToken ct)
+    {
+        if (req.SessionId == null)
+        {
+            var baseUrl = await EnsureProcessBaseAsync(req.Model, ct);
+            if (baseUrl == null)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
+                return;
+            }
+            await ProxyRequestHandler.ForwardAsync(ctx, baseUrl, rawBody, ct);
+            return;
+        }
+
+        // Structured mode is LLamaSharp-only (the grammar is enforced by the server-side
+        // sampling pipeline) — a clean client error, not a silent behavior difference.
+        if (req.Structured)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = $"Structured mode is not supported for process-backend model '{req.Model}'.", Type = "not_supported" } }, 400);
+            return;
+        }
+
+        var session = _processSessions?.Get(clientId, req.SessionId);
+        if (session == null)
+        {
+            await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
+            return;
+        }
+
+        if (req.Messages.Count == 0)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "messages is required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        if (req.Stream)
+        {
+            var tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct), ct);
+            await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
+        }
+        else
+        {
+            var sb = new StringBuilder();
+            await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct), ct))
+                sb.Append(token);
+
+            var response = new
+            {
+                id = Guid.NewGuid().ToString("N"),
+                @object = "chat.completion",
+                created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                model = req.Model,
+                choices = new[]
+                {
+                    new
+                    {
+                        index = 0,
+                        message = new { role = "assistant", content = sb.ToString() },
+                        finish_reason = "stop"
+                    }
+                }
+            };
+            await SseStreamer.WriteJsonAsync(ctx.Response, response);
+        }
     }
 
     private async Task HandleChatCompletionAsync(HttpListenerContext ctx, string clientId, CancellationToken ct)
@@ -263,8 +333,10 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        // Process-backend models (ternary) are proxied 1:1 to the child llama-server.
-        if (await TryProxyProcessModelAsync(ctx, req.Model, req.SessionId, rawBody, ct)) return;
+        // Process-backend models (ternary): stateless → 1:1 proxy; with session_id →
+        // transcript-backed ProcessSession (identical client-facing behavior to KV sessions).
+        if (IsProcessModel(req.Model))
+        { await HandleProcessModelChatAsync(ctx, req, clientId, rawBody, ct); return; }
 
         var session = ResolveSession(clientId, req.SessionId);
         if (session == null && req.SessionId != null)
@@ -424,7 +496,7 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        if (await TryProxyProcessModelAsync(ctx, req.Model, null, rawBody, ct)) return;
+        if (await TryProxyProcessModelAsync(ctx, req.Model, rawBody, ct)) return;
 
         if (string.IsNullOrEmpty(req.Prompt))
         {
@@ -518,7 +590,7 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         // JSON null overrides the DTO default — null-guard before TryGetSlot (M-10).
-        if (req.Model != null && await TryProxyProcessModelAsync(ctx, req.Model, null, null, ct)) return;
+        if (req.Model != null && await TryProxyProcessModelAsync(ctx, req.Model, null, ct)) return;
         var slot = (req.Model != null ? _models.TryGetSlot(req.Model) : null) ?? _models.GetEmbeddingSlot();
         if (slot == null || !slot.IsEmbedding || slot.Embedder == null)
         {
@@ -633,7 +705,8 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         _clients.Heartbeat(clientId, req?.ActiveSessions ?? 0);
-        var alive = _sessions.ListSessions().Count(s => s.ClientId == clientId);
+        var alive = _sessions.ListSessions().Count(s => s.ClientId == clientId)
+                    + (_processSessions?.CountForClient(clientId) ?? 0);
         await SseStreamer.WriteJsonAsync(ctx.Response, new HeartbeatResponse
         {
             Ok = true,
@@ -706,6 +779,27 @@ public sealed class RequestRouter : IRequestRouter
 
         try
         {
+            // Process-backend models get transcript-backed sessions in their own registry
+            // (no VramBudget — KV lives in the child process), identical response shape.
+            var processModelCfg = req.ModelId != null
+                ? _config.Models.FirstOrDefault(m => m.Id.Equals(req.ModelId, StringComparison.OrdinalIgnoreCase) && IsProcessModel(m.Id))
+                : null;
+            if (processModelCfg != null)
+            {
+                if (_processSessions == null)
+                    throw new InvalidOperationException("Process backend unavailable");
+                var procSession = _processSessions.Create(clientId, req.SessionId, processModelCfg);
+                await SseStreamer.WriteJsonAsync(ctx.Response, new
+                {
+                    session_id = procSession.SessionId,
+                    client_id = procSession.ClientId,
+                    model_id = procSession.ModelId,
+                    context_size = procSession.ContextSize,
+                    estimated_vram_mb = procSession.EstimatedVramMb
+                });
+                return;
+            }
+
             // VramBudget reservation + release happen inside SessionRegistry (symmetric accounting)
             var session = _sessions.CreateSession(clientId, req.SessionId, req.ModelId);
 
@@ -740,19 +834,32 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var session = _sessions.GetSession(clientId, sessionId);
-        if (session == null)
-        {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Session not found: {sessionId}", Type = "session_not_found" } }, 404);
-            return;
-        }
-
         var req = await SseStreamer.ReadJsonAsync<PrefillRequest>(ctx.Request, ct);
         if (req == null || string.IsNullOrEmpty(req.Text))
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "text required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        // Process sessions first (transcript-backed), then in-process KV sessions.
+        var procSession = _processSessions?.Get(clientId, sessionId);
+        if (procSession != null)
+        {
+            var (psuccess, ptokens, pelapsedMs) = await procSession.PrefillAsync(req.Text, ct);
+            await SseStreamer.WriteJsonAsync(ctx.Response, new PrefillResponse
+            {
+                Prefilled = psuccess,
+                Tokens = ptokens,
+                ElapsedMs = pelapsedMs
+            });
+            return;
+        }
+
+        var session = _sessions.GetSession(clientId, sessionId);
+        if (session == null)
+        {
+            await WriteSessionNotFoundAsync(ctx.Response, sessionId);
             return;
         }
 
@@ -774,11 +881,19 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
+        // Process sessions first (transcript-backed), then in-process KV sessions.
+        var procSession = _processSessions?.Get(clientId, sessionId);
+        if (procSession != null)
+        {
+            var procOk = await procSession.RewindAsync();
+            await SseStreamer.WriteJsonAsync(ctx.Response, new RewindResponse { Rewound = procOk });
+            return;
+        }
+
         var session = _sessions.GetSession(clientId, sessionId);
         if (session == null)
         {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Session not found: {sessionId}", Type = "session_not_found" } }, 404);
+            await WriteSessionNotFoundAsync(ctx.Response, sessionId);
             return;
         }
 
@@ -795,11 +910,19 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
+        // Process sessions first (transcript-backed), then in-process KV sessions.
+        var procSession = _processSessions?.Get(clientId, sessionId);
+        if (procSession != null)
+        {
+            var procOk = procSession.SaveState();
+            await SseStreamer.WriteJsonAsync(ctx.Response, new { saved = procOk });
+            return;
+        }
+
         var session = _sessions.GetSession(clientId, sessionId);
         if (session == null)
         {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Session not found: {sessionId}", Type = "session_not_found" } }, 404);
+            await WriteSessionNotFoundAsync(ctx.Response, sessionId);
             return;
         }
 
@@ -816,11 +939,27 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
+        // Process sessions first (transcript-backed), then in-process KV sessions.
+        var procSession = _processSessions?.Get(clientId, sessionId);
+        if (procSession != null)
+        {
+            try
+            {
+                procSession.Reset();
+                await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Message = "Transcript reset" });
+            }
+            catch (TimeoutException tex)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = tex.Message, Type = "session_busy" } }, 409);
+            }
+            return;
+        }
+
         var session = _sessions.GetSession(clientId, sessionId);
         if (session == null)
         {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Session not found: {sessionId}", Type = "session_not_found" } }, 404);
+            await WriteSessionNotFoundAsync(ctx.Response, sessionId);
             return;
         }
 
@@ -847,11 +986,29 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
+        // Process sessions first (transcript-backed), then in-process KV sessions.
+        var procSession = _processSessions?.Get(clientId, sessionId);
+        if (procSession != null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response, new
+            {
+                session_id = procSession.SessionId,
+                client_id = procSession.ClientId,
+                model_id = procSession.ModelId,
+                is_prefilled = procSession.IsPrefilled,
+                approx_tokens = procSession.ApproxTokenCount,
+                context_size = procSession.ContextSize,
+                estimated_vram_mb = procSession.EstimatedVramMb,
+                created_at = procSession.CreatedAt,
+                last_activity = procSession.LastActivity
+            });
+            return;
+        }
+
         var session = _sessions.GetSession(clientId, sessionId);
         if (session == null)
         {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Session not found: {sessionId}", Type = "session_not_found" } }, 404);
+            await WriteSessionNotFoundAsync(ctx.Response, sessionId);
             return;
         }
 
@@ -878,7 +1035,9 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var ok = _sessions.DestroySession(clientId, sessionId);
+        // Process sessions first (transcript-backed), then in-process KV sessions.
+        var ok = _processSessions?.Destroy(clientId, sessionId) ?? false;
+        if (!ok) ok = _sessions.DestroySession(clientId, sessionId);
         await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Ok = ok, Message = ok ? "Destroyed" : "Not found" });
     }
 

@@ -17,4 +17,12 @@ public sealed class BackendsSection
     /// <summary>Directory holding installed model weights. Resolved against the server root when relative.</summary>
     [JsonPropertyName("models_root")]
     public string ModelsRoot { get; set; } = "models";
+
+    /// <summary>Inclusive lower bound of the random port range for child llama-server processes.</summary>
+    [JsonPropertyName("port_min")]
+    public int PortMin { get; set; } = 20000;
+
+    /// <summary>Inclusive upper bound of the random port range for child llama-server processes.</summary>
+    [JsonPropertyName("port_max")]
+    public int PortMax { get; set; } = 25000;
 }

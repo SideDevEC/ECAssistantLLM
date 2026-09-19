@@ -21,6 +21,7 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
     private readonly string _serverRoot;
     private readonly PlatformRuntimeCatalog _catalog;
     private readonly RuntimeLocator _runtimeLocator;
+    private readonly BackendPortAllocator _portAllocator;
     private bool _disposed;
 
     /// <inheritdoc/>
@@ -48,6 +49,7 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
             : Path.GetFullPath(serverRoot);
         _catalog = catalog ?? new PlatformRuntimeCatalog();
         _runtimeLocator = new RuntimeLocator();
+        _portAllocator = new BackendPortAllocator(_config.Backends);
     }
 
     /// <inheritdoc/>
@@ -67,6 +69,15 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
             _starting[config.Id] = start;
         }
         return start.WaitAsync(ct);
+    }
+
+    /// <inheritdoc/>
+    public async Task<string> EnsureStartedUrlAsync(string modelId, CancellationToken ct = default)
+    {
+        var cfg = _config.Models.FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Unknown model: {modelId}");
+        var instance = await EnsureStartedAsync(cfg, ct).ConfigureAwait(false);
+        return instance.BaseUrl;
     }
 
     private async Task<ProcessModelInstance> StartCoreAsync(ModelConfig config, CancellationToken ct)
@@ -135,13 +146,9 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
             var used = _instances.Values
                 .Concat(_starting.Values.Where(t => t.IsCompletedSuccessfully).Select(t => t.Result))
                 .Select(i => int.Parse(i.BaseUrl.Split(':').Last()))
-                .ToHashSet();
-            for (var port = 8500; port < 8600; port++)
-            {
-                if (!used.Contains(port)) return port;
-            }
+                .ToList();
+            return _portAllocator.Allocate(used);
         }
-        throw new InvalidOperationException("No free backend port available (8500-8599)");
     }
 
     private string ResolveRootedPath(string relative) => Path.IsPathRooted(relative)

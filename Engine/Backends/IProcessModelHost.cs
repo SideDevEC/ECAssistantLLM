@@ -16,6 +16,12 @@ public interface IProcessModelHost
     /// </summary>
     Task<ProcessModelInstance> EnsureStartedAsync(ModelConfig config, CancellationToken ct = default);
 
+    /// <summary>
+    /// Ensures the model's child llama-server is running and returns its base URL.
+    /// Convenience for callers that only need the endpoint (e.g. ProcessSession).
+    /// </summary>
+    Task<string> EnsureStartedUrlAsync(string modelId, CancellationToken ct = default);
+
     /// <summary>Stops all running instances.</summary>
     Task StopAllAsync();
 }

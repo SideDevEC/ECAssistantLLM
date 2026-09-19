@@ -120,3 +120,67 @@ Backends package depends only on Config + ServerLogger.
 - No MLX runtime (Apple-only; llama.cpp Metal covers macOS).
 - No multi-process scheduling beyond one child per model (InferenceScheduler already
   serializes; llama-server handles its own queueing).
+
+---
+
+# Backend Abstraction Architecture — v2 Addendum: Process Sessions (2026-09-19)
+
+**Goal:** Process-backend models behave EXACTLY like in-process models from the client's
+perspective — including `session_id`, prefill, rewind, save-state, reset, status, destroy.
+No more 400 on `session_id`. Port allocation moves to a higher random range.
+
+## Design Decision
+
+**Transcript-backed sessions + child prefix-cache**, not child-side slot save/restore.
+- `ProcessSession` keeps the conversation transcript server-side (prefix + history).
+- Each turn re-sends the full history to the child; llama-server's per-slot KV/prefix
+  cache skips tokens it already processed → long-chat efficiency without fork-specific
+  `/slots` APIs (works with ANY OpenAI-compatible child).
+- Efficiency is inherited from the child's cache; correctness never depends on it.
+
+## New Classes (one type per file, folder-mirrored namespaces)
+
+- `Engine/Backends/BackendPortAllocator.cs`
+  - `int Allocate(IReadOnlyCollection<int> usedPorts)` — random port in a configurable
+    range (default 20000–25000), skipping used ports. Constructor-injected `Random`.
+- `Engine/Backends/ProcessSession.cs`
+  - One client session on a Process-backend model. Holds transcript, serializes
+    outbound OpenAI chat payloads (incl. image_url parts), streams deltas from the child.
+  - Methods mirror `SessionContext`: `PrefillAsync`, `InferAsync`, `SaveState`,
+    `RewindAsync`, `Reset`, plus status properties (`IsPrefilled`, `ApproxTokenCount`,
+    `ContextSize`, `EstimatedVramMb = 0` — KV lives in the child process).
+  - Transcript mutations (SaveState/Rewind/Reset/Infer) serialized by an internal
+    `SemaphoreSlim` IO lock, same contract as `SessionContext`.
+- `Engine/Backends/ProcessSessionRegistry.cs`
+  - Mirrors `SessionRegistry` API for process sessions: `Create`, `Get`, `Destroy`,
+    `DestroyClient`, `CountForClient`. Enforces `Server.MaxSessions`. Thread-safe.
+
+## Config additions
+
+- `Config/Models/BackendsSection.cs`: `port_min` / `port_max` (defaults 20000/25000).
+
+## Wiring changes
+
+- `RequestRouter`: `IsProcessModel` branch now handles `session_id` via
+  `ProcessSessionRegistry`; stateless requests still proxy 1:1. Structured mode remains
+  LlamaSharp-only (server-side grammar) → clean 400 for process models.
+- `LlmHttpServer`/`Program.cs`: construct and inject `ProcessSessionRegistry`.
+- `ClientManager`: optional `ProcessSessionRegistry` — destroys process sessions on
+  client disconnect/eviction, symmetric with LLamaSharp sessions.
+
+## Dependency Flow (v2 additions)
+
+```
+RequestRouter
+   ├─► ProcessSessionRegistry ─► ProcessSession ─► HttpClient ─► child llama-server
+   └─► ProcessModelHost (stateless proxy path, unchanged)
+```
+
+`Server → Engine → Config` layering preserved. Process sessions deliberately do NOT
+reserve VramBudget (weights + KV are owned by the child process, not this server).
+
+## Testing
+
+- `Tests/Backends/BackendPortAllocatorTests.cs` — range bounds, used-port skips, exhaustion.
+- `Tests/Backends/ProcessSessionRegistryTests.cs` — create/duplicate/max/destroy, transcript
+  save/rewind/reset semantics (no HTTP — transcript logic is isolated from the transport).

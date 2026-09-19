@@ -42,7 +42,8 @@ public sealed class LlmHttpServer : IDisposable
         IClientManager clientManager,
         ILogger logger,
         CancellationTokenSource? externalCts = null,
-        IProcessModelHost? processModelHost = null)
+        IProcessModelHost? processModelHost = null,
+        Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _modelHost = modelHost ?? throw new ArgumentNullException(nameof(modelHost));
@@ -57,7 +58,7 @@ public sealed class LlmHttpServer : IDisposable
 
         _router = new RequestRouter(
             _modelHost, _sessionRegistry, _scheduler, _vramBudget,
-            _clientManager, _config, _logger, _cts, processModelHost);
+            _clientManager, _config, _logger, _cts, processModelHost, processSessionRegistry);
 
         _requestGate = new SemaphoreSlim(MaxConcurrentRequests, MaxConcurrentRequests);
 

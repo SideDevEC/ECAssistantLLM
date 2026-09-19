@@ -141,6 +141,9 @@ var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger, 
 // Process backend host — serves ternary-packed models (e.g. Bonsai) via external llama-server.
 var processModelHost = new ECAssistant.LLM.Engine.Backends.ProcessModelHost(config, logger, rootDir);
 
+// Transcript-backed sessions for process models — Bonsai behaves exactly like in-process models.
+var processSessionRegistry = new ECAssistant.LLM.Engine.Backends.ProcessSessionRegistry(processModelHost, config, logger);
+
 // ── Shutdown coordination ──
 var cts = new CancellationTokenSource();
 
@@ -151,9 +154,9 @@ void OnLastClientDisconnected()
     cts.Cancel();
 }
 
-var clientManager = new ClientManager(sessionRegistry, config, logger, OnLastClientDisconnected);
+var clientManager = new ClientManager(sessionRegistry, config, logger, OnLastClientDisconnected, processSessionRegistry);
 
-var server = new LlmHttpServer(config, modelHost, sessionRegistry, scheduler, vramBudget, clientManager, logger, cts, processModelHost);
+var server = new LlmHttpServer(config, modelHost, sessionRegistry, scheduler, vramBudget, clientManager, logger, cts, processModelHost, processSessionRegistry);
 
 // ── Handle external shutdown signals ──
 Console.CancelKeyPress += (_, e) =>

@@ -12,6 +12,7 @@ public sealed class ClientManager : IClientManager, IDisposable
 {
     private readonly ConcurrentDictionary<string, ClientRecord> _clients = new();
     private readonly SessionRegistry _sessionRegistry;
+    private readonly Engine.Backends.ProcessSessionRegistry? _processSessionRegistry;
     private readonly ILogger _logger;
     private readonly int _heartbeatTimeoutSec;
     private readonly Timer _evictionTimer;
@@ -29,8 +30,19 @@ public sealed class ClientManager : IClientManager, IDisposable
         ECAssistant.LLM.Config.LlmServerConfig config,
         ILogger logger,
         Action? onLastClientDisconnected)
+        : this(sessionRegistry, config, logger, onLastClientDisconnected, processSessionRegistry: null)
+    {
+    }
+
+    public ClientManager(
+        SessionRegistry sessionRegistry,
+        ECAssistant.LLM.Config.LlmServerConfig config,
+        ILogger logger,
+        Action? onLastClientDisconnected,
+        Engine.Backends.ProcessSessionRegistry? processSessionRegistry)
     {
         _sessionRegistry = sessionRegistry ?? throw new ArgumentNullException(nameof(sessionRegistry));
+        _processSessionRegistry = processSessionRegistry;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _heartbeatTimeoutSec = config.Server.HeartbeatTimeoutSec;
         _shutdownOnLastClient = config.Server.ShutdownOnLastClient;
@@ -81,6 +93,7 @@ public sealed class ClientManager : IClientManager, IDisposable
             return false;
 
         var freed = _sessionRegistry.DestroyClientSessions(clientId);
+        freed += _processSessionRegistry?.DestroyClient(clientId) ?? 0;
         _logger.Info("ClientManager", $"Disconnected client '{record.Name}' ({clientId}), freed {freed} session(s)");
 
         // Check if this was the last client
@@ -111,6 +124,7 @@ public sealed class ClientManager : IClientManager, IDisposable
             if (_clients.TryRemove(kvp.Key, out var record))
             {
                 var freed = _sessionRegistry.DestroyClientSessions(kvp.Key);
+                freed += _processSessionRegistry?.DestroyClient(kvp.Key) ?? 0;
                 _logger.Warn("ClientManager",
                     $"Evicted stale client '{record.Name}' ({kvp.Key}) — " +
                     $"last heartbeat {record.LastHeartbeat:HH:mm:ss}, freed {freed} session(s)");
