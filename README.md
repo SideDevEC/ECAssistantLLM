@@ -1,10 +1,13 @@
 # ECAssistantLLM
 
-**Standalone OpenAI-compatible local LLM server powered by LLamaSharp.**
+> **Local inference for ECAssistant — and for anything that speaks OpenAI.** A self-contained, OpenAI-compatible LLM server powered by LLamaSharp. Your models, your machine, your keys — chat stays on `localhost`.
 
+[![NuGet](https://img.shields.io/nuget/v/ECAssistant.LLM.Server)](https://www.nuget.org/packages/ECAssistant.LLM.Server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![LLamaSharp](https://img.shields.io/badge/LLamaSharp-0.27.0-green.svg)](https://github.com/SciSharp/LLamaSharp)
+
+ECAssistant exists to **assist** people — and assistance you can't trust leaks nothing. This server is the privacy cornerstone of [ECAssistant](https://github.com/SideDevEC/ECAssistant): it runs locally, serves multiple apps at once, and shuts down when the last client leaves. It's also a standalone product — point any OpenAI-compatible client at it and go.
 
 ---
 
@@ -143,33 +146,22 @@ Create `~/.ECAssistantLLM/llm-server.json`:
 
 ## NuGet Package
 
-The server is distributed as a NuGet package for ECAssistant-flavored projects:
+The server ships on nuget.org for ECAssistant-flavored projects (and any project that wants a local OpenAI-compatible server staged into its build output):
 
 ```xml
-<PackageReference Include="ECAssistant.LLM.Server" Version="14.7.0" />
+<PackageReference Include="ECAssistant.LLM.Server" Version="14.7.8" />
 ```
 
-**Package source** (GitHub Packages):
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <add key="GitHub Packages" value="https://nuget.pkg.github.com/SideDevEC/index.json" />
-  </packageSources>
-</configuration>
-```
-
-The package contains the compiled server runtime as content files. NuGet places them in a `server/` directory in the consuming project's build output. The ECAssistant wizard copies these to `~/.ECAssistantLLM/server/` on first run.
+The package contains the compiled server runtime as content files. NuGet places them in a `server/` directory in the consuming project's build output. The ECAssistant wizard copies these to `~/.ECAssistantLLM/server/` on first run — so nothing downloads at chat time.
 
 ### Publishing a new version
 
-```bash
-git tag llm-server-v14.7.1
-git push origin llm-server-v14.7.1
-```
+Zero-touch: tag and push, CI builds, packs, and publishes to nuget.org + GitHub Packages and creates a Release:
 
-The GitHub Actions workflow automatically builds, packs, and publishes the package.
+```bash
+git tag llm-server-v14.7.9
+git push origin llm-server-v14.7.9
+```
 
 ## Dependencies
 
@@ -181,6 +173,15 @@ The GitHub Actions workflow automatically builds, packs, and publishes the packa
 | [Microsoft.Extensions.Logging.Abstractions](https://github.com/dotnet/runtime) | 10.0.5 | MIT |
 
 LLamaSharp wraps [llama.cpp](https://github.com/ggerganov/llama.cpp), which is also MIT licensed.
+
+## The ecosystem
+
+| Repo | What it is |
+|---|---|
+| [ECAssistant](https://github.com/SideDevEC/ECAssistant) | Start here — overview & docs |
+| [ECAssistantCore](https://github.com/SideDevEC/ECAssistantCore) | The embeddable agent library (talks to this server over OpenAI-compatible HTTP only) |
+| [ECAssistantTUI](https://github.com/SideDevEC/ECAssistantTUI) | Terminal UI library |
+| [ECAssistantConsole](https://github.com/SideDevEC/ECAssistantConsole) | Reference host / end-user CLI |
 
 ## License
 
