@@ -308,19 +308,9 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        // Stateless 1:1 proxy remains only for non-chat/unhandled shapes (defense).
-        if (req.SessionId == null)
-        {
-            var baseUrl = await EnsureProcessBaseAsync(req.Model, ct);
-            if (baseUrl == null)
-            {
-                await SseStreamer.WriteJsonAsync(ctx.Response,
-                    new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
-                return;
-            }
-            await ProxyRequestHandler.ForwardAsync(ctx, baseUrl, rawBody, ct);
-            return;
-        }
+        // Chat is fully handled above for every stateless/session × structured/plain
+        // combination — the raw 1:1 proxy is intentionally unreachable here (was the
+        // pre-parity escape hatch that silently bypassed ThinkFilter + structured mode).
 
         // Structured mode — grammar-constrained decision envelope via the child's native
         // GBNF support (grammar + enable_thinking=false). Envelope early-stop mirrors the
