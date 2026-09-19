@@ -28,10 +28,19 @@ public class StructuredDecoderTests
     }
 
     [Fact]
-    public void NeitherAnswerNorToolcalls_Throws()
+    public void NeitherAnswerNorToolcalls_Lenient_FallsBackToThinking()
+    {
+        // Lenient contract: thinking IS the reply when answer/toolcalls are absent
+        var envelope = StructuredDecoder.Decode("""{"thinking":"hmm"}""");
+        Assert.True(envelope.HasAnswer);
+        Assert.Equal("hmm", envelope.Answer);
+    }
+
+    [Fact]
+    public void EmptyEverything_Throws()
     {
         Assert.Throws<InvalidDecisionException>(() =>
-            StructuredDecoder.Decode("""{"thinking":"hmm"}"""));
+            StructuredDecoder.Decode("""{"thinking":""}"""));
     }
 
     [Fact]

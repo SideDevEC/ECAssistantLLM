@@ -115,11 +115,17 @@ Backends package depends only on Config + ServerLogger.
 
 ## Non-Goals (v1)
 
-- No grammar/structured-decoding through Process models (llama-server has its own
-  grammar support; revisit later).
 - No MLX runtime (Apple-only; llama.cpp Metal covers macOS).
 - No multi-process scheduling beyond one child per model (InferenceScheduler already
   serializes; llama-server handles its own queueing).
+
+## v2 addendum note — structured decoding on Process models (14.8.2)
+
+Structured mode IS supported on process models (session-scoped). The child gets
+`grammar: DecisionGrammar.Gbnf` + `chat_template_kwargs: {enable_thinking: false}`;
+the envelope early-stop + StructuredDecoder response are identical to in-process.
+Stateless process requests stay raw 1:1 passthrough (structured without session → 400).
+Verified E2E on the Prism runtime with real Bonsai weights (3/3 valid envelopes).
 
 ---
 

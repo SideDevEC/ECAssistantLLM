@@ -135,11 +135,15 @@ public sealed class ProcessSession : IDisposable
     /// <summary>
     /// Appends the incoming messages to the transcript, sends prefix + history to the
     /// child, and yields the assistant reply as a stream of content deltas.
+    /// When <paramref name="grammar"/> is set (structured mode), the child is asked to
+    /// constrain output to that GBNF grammar with thinking disabled — mirroring the
+    /// in-process sampling-pipeline grammar (v14.8.2).
     /// </summary>
     public async IAsyncEnumerable<string> InferAsync(
         IReadOnlyList<ChatMessage> messages,
         ChatCompletionRequest request,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default,
+        string? grammar = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(messages);
@@ -160,7 +164,12 @@ public sealed class ProcessSession : IDisposable
 
         LastActivity = DateTime.UtcNow;
 
-        var payload = BuildChatPayload(messages, ClampMaxTokens(request.MaxTokens));
+        // Structured mode mirrors the in-process structured cap (CreateStructuredInferenceParams:
+        // clamp to 256) — envelopes are small; early-stop in the router handles the actual stop.
+        var maxTokens = grammar != null
+            ? Math.Clamp(Math.Min(request.MaxTokens ?? 256, 256), 1, 256)
+            : ClampMaxTokens(request.MaxTokens);
+        var payload = BuildChatPayload(messages, maxTokens, grammar);
 
         var deltas = StreamDeltasAsync(payload, ct);
         var replySb = new StringBuilder();
@@ -295,7 +304,7 @@ public sealed class ProcessSession : IDisposable
 
     // ── Transport ───────────────────────────────────────
 
-    private JsonObject BuildChatPayload(IReadOnlyList<ChatMessage> turn, int maxTokens)
+    internal JsonObject BuildChatPayload(IReadOnlyList<ChatMessage> turn, int maxTokens, string? grammar = null)
     {
         var messages = new JsonArray();
         if (!string.IsNullOrEmpty(_prefix))
@@ -305,13 +314,25 @@ public sealed class ProcessSession : IDisposable
         foreach (var msg in turn)
             messages.Add(BuildOutboundMessage(msg));
 
-        return new JsonObject
+        var payload = new JsonObject
         {
             ["model"] = ModelId,
             ["messages"] = messages,
             ["stream"] = true, // always stream internally — uniform parsing path
             ["max_tokens"] = maxTokens,
         };
+
+        if (grammar != null)
+        {
+            // Grammar-constrained decoding on the child. enable_thinking=false keeps the
+            // constrained output in `content` — with thinking enabled the chat template
+            // routes the envelope into reasoning_content and pads content with whitespace
+            // (verified empirically on the Prism runtime, 2026-09-19).
+            payload["grammar"] = grammar;
+            payload["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = false };
+        }
+
+        return payload;
     }
 
     /// <summary>Serializes one message; image parts become base64 data-URI image_url entries.</summary>

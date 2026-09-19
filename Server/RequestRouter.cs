@@ -265,12 +265,62 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        // Structured mode is LLamaSharp-only (the grammar is enforced by the server-side
-        // sampling pipeline) — a clean client error, not a silent behavior difference.
+        // Structured mode: grammar-constrained decision envelope via the child's native
+        // GBNF support (grammar + enable_thinking=false). Envelope early-stop mirrors the
+        // in-process loop — break the stream as soon as the JSON is complete and valid;
+        // disposing the child stream stops the generation. Stateless process requests are
+        // still raw 1:1 passthrough (structured without a session → 400).
         if (req.Structured)
         {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = $"Structured mode is not supported for process-backend model '{req.Model}'.", Type = "not_supported" } }, 400);
+            if (req.SessionId == null)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = $"Structured mode requires a session_id for process-backend model '{req.Model}'.", Type = "not_supported" } }, 400);
+                return;
+            }
+
+            var structuredSession = _processSessions?.Get(clientId, req.SessionId);
+            if (structuredSession == null)
+            {
+                await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
+                return;
+            }
+            if (req.Messages.Count == 0)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "messages is required", Type = "invalid_request" } }, 400);
+                return;
+            }
+
+            var structuredSw = System.Diagnostics.Stopwatch.StartNew();
+            _logger.Info("Router", $"[Structured/process] generation start (session={req.SessionId}, model={req.Model}, max_tokens={req.MaxTokens})");
+            var structuredSb = new StringBuilder();
+            var earlyStop = false;
+            await foreach (var token in structuredSession.InferAsync(req.Messages, req, ct, grammar: DecisionGrammar.Gbnf))
+            {
+                structuredSb.Append(token);
+                if (TryParseCompleteEnvelope(structuredSb.ToString(), out _))
+                {
+                    earlyStop = true;
+                    _logger.Info("Router", $"[Structured/process] early stop at {structuredSb.Length} chars (envelope complete)");
+                    break;
+                }
+            }
+            structuredSw.Stop();
+            _logger.Info("Router", $"[Structured/process] generated {structuredSb.Length} chars (earlyStop={earlyStop}) in {structuredSw.ElapsedMilliseconds} ms");
+
+            try
+            {
+                var envelope = StructuredDecoder.Decode(structuredSb.ToString());
+                _logger.Info("Router", $"[Structured/process] decoded: answer={envelope.HasAnswer}, toolcalls={envelope.ToolCalls?.Count ?? 0}");
+                await SseStreamer.WriteJsonAsync(ctx.Response, new { decision = envelope });
+            }
+            catch (InvalidDecisionException ex)
+            {
+                _logger.Warn("Router", $"[Structured/process] decode failed: {ex.Message} | raw: {structuredSb.ToString()[..Math.Min(structuredSb.Length, 300)]}");
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = $"Invalid decision envelope: {ex.Message}", Type = "invalid_decision" } }, 422);
+            }
             return;
         }
 
