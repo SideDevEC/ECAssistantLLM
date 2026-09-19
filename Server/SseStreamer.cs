@@ -94,18 +94,15 @@ public static class SseStreamer
             await foreach (var token in tokenStream.WithCancellation(ct))
             {
                 var json = JsonSerializer.Serialize(makeDelta(token, chunkId), JsonOptions);
-                await writer.WriteLineAsync($"data: {json}");
-                await writer.WriteLineAsync(); // empty line = event boundary
+                await writer.WriteAsync($"data: {json}\n\n"); // explicit \n\n — WriteLineAsync would emit \r\n on Windows
             }
 
             // Final chunk with finish_reason
             var finishJson = JsonSerializer.Serialize(makeFinish(chunkId), JsonOptions);
-            await writer.WriteLineAsync($"data: {finishJson}");
-            await writer.WriteLineAsync();
+            await writer.WriteAsync($"data: {finishJson}\n\n");
 
             // End of stream marker
-            await writer.WriteLineAsync("data: [DONE]");
-            await writer.WriteLineAsync();
+            await writer.WriteAsync("data: [DONE]\n\n");
         }
         catch (OperationCanceledException)
         {
@@ -123,8 +120,7 @@ public static class SseStreamer
             try
             {
                 var errorJson = JsonSerializer.Serialize(new { error = new { message = ex.Message, type = "stream_error" } });
-                await writer.WriteLineAsync($"data: {errorJson}");
-                await writer.WriteLineAsync();
+                await writer.WriteAsync($"data: {errorJson}\n\n");
             }
             catch
             {

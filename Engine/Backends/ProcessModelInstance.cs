@@ -126,9 +126,12 @@ public sealed class ProcessModelInstance : IDisposable
             return;
         }
 
-        if (!string.Equals(proc.ProcessName, recordedName, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(proc.ProcessName, recordedName, StringComparison.OrdinalIgnoreCase)
+            && !recordedName.StartsWith(proc.ProcessName, StringComparison.OrdinalIgnoreCase))
         {
             // PID was recycled by an unrelated process — never kill it.
+            // macOS note: ProcessName is truncated to 15 chars (p_comm), so the
+            // prefix match is required — "llama-server-fake" vs "llama-server-fa".
             logger.Warn("ProcessBackend", $"Orphan reap skipped: PID {pid} is '{proc.ProcessName}', not '{recordedName}'");
             try { File.Delete(pidFile); } catch { }
             return;
