@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 44  |  LOC: 3998  |  ~2076 tokens
+Types: 45  |  LOC: 4070  |  ~2131 tokens
 
 ---
 
@@ -29,6 +29,10 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 Constructor:
   - ClientManagementTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: ClientManagerGraceTests
+> ClientManager shutdown grace: last-client disconnect starts a countdown; a client
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, Xunit
 
 ### Class: ConcurrentRequestTests
 > Tests for concurrent access to the LLM server.

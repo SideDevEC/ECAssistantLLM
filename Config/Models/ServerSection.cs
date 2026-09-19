@@ -33,6 +33,15 @@ public sealed class ServerSection
     [JsonPropertyName("shutdown_on_last_client")]
     public bool ShutdownOnLastClient { get; set; } = true;
 
+    /// <summary>
+    /// Grace period (seconds) before the shutdown triggered by the last client
+    /// disconnect actually fires. Protects against client reconnect cycles — a client
+    /// that returns within the window cancels the shutdown. 0 = shut down immediately.
+    /// Default: 60.
+    /// </summary>
+    [JsonPropertyName("shutdown_grace_sec")]
+    public int ShutdownGraceSec { get; set; } = 60;
+
     [JsonPropertyName("heartbeat_timeout_sec")]
     public int HeartbeatTimeoutSec { get; set; } = 90;
 

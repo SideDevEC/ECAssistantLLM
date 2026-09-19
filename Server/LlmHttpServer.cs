@@ -133,7 +133,8 @@ public sealed class LlmHttpServer : IDisposable
                 catch (Exception ex)
                 {
                     // Suppress noisy client-disconnect errors (broken pipe / aborted connection)
-                    if (!IsClientDisconnect(ex))
+                    // and disposed-response races during shutdown.
+                    if (!IsClientDisconnect(ex) && ex is not ObjectDisposedException)
                         _logger.Error("Server", $"Unhandled error: {ex.Message}");
                     try
                     {

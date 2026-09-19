@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-19T13:01:17.373085+00:00
-Packages: 2  |  Types: 167
+Generated: 2026-09-19T14:49:30.361994+00:00
+Packages: 2  |  Types: 169
 
 ---
 
-## ECAssistantLLM (123 types, ~8865 LOC)
+## ECAssistantLLM (124 types, ~8999 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -29,6 +29,7 @@ Packages: 2  |  Types: 167
 - 🟣 ClientInfo  (ECAssistantLLM)  deps: [string, string, string, DateTime, DateTime, int]
 - 🟡 ClientManagementTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ClientManager : IClientManager, IDisposable  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action, SessionRegistry, LlmServerConfig, ILogger, Action, ProcessSessionRegistry]
+- 🟡 ClientManagerGraceTests  (ECAssistantLLM)
 - 🟡 ClientRegisterRequest  (ECAssistantLLM)
 - 🟡 ClientRegisterResponse  (ECAssistantLLM)
 - 🟡 CompletionChoice  (ECAssistantLLM)
@@ -131,7 +132,7 @@ Packages: 2  |  Types: 167
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (44 types, ~3998 LOC)
+## Tests (45 types, ~4070 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -139,6 +140,7 @@ Packages: 2  |  Types: 167
 - 🟡 ChatMessageContentConverterTests  (Tests)
 - 🟡 ClientAuthTests  (Tests)
 - 🟡 ClientManagementTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ClientManagerGraceTests  (Tests)
 - 🟡 ConcurrentRequestTests  (Tests)  deps: [TestServerFixture]
 - 🟡 EmbeddingsTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ErrorHandlingTests  (Tests)  deps: [TestServerFixture]

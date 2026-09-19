@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 123  |  LOC: 8865  |  ~5309 tokens
+Types: 124  |  LOC: 8999  |  ~5364 tokens
 
 ---
 
@@ -110,6 +110,10 @@ Implements: IClientManager, IDisposable
 Constructor:
   - ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected, Engine.Backends.ProcessSessionRegistry? processSessionRegistry)
 Cross-package deps: ECAssistant.LLM.Interfaces
+
+### Class: ClientManagerGraceTests
+> ClientManager shutdown grace: last-client disconnect starts a countdown; a client
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, Xunit
 
 ### Class: ClientRegisterRequest
 > Generic API error response.

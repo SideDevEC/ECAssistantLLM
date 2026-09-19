@@ -14,7 +14,7 @@
          The wizard copies it to ~/.ECAssistantLLM/server/ on first install. -->
     <IsPackable>true</IsPackable>
     <PackageId>ECAssistant.LLM.Server</PackageId>
-    <PackageVersion>14.9.2</PackageVersion>
+    <PackageVersion>14.9.3</PackageVersion>
     <Authors>SideDevEC</Authors>
     <Company>SideDevEC</Company>
     <Product>ECAssistantLLM</Product>
