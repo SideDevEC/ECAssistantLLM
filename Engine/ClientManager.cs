@@ -165,8 +165,12 @@ public sealed class ClientManager : IClientManager, IDisposable
 
         _logger.Info("ClientManager",
             $"{reason} — server shuts down in {_shutdownGraceSec}s unless a client returns");
-        _graceTimer = new Timer(GraceElapsed, null,
+        // Race-safe: create the timer BEFORE publishing it, so a concurrent cancel
+        // always sees either the old value or the fully-initialized new one.
+        var timer = new Timer(GraceElapsed, null,
             TimeSpan.FromSeconds(_shutdownGraceSec), Timeout.InfiniteTimeSpan);
+        var previous = Interlocked.Exchange(ref _graceTimer, timer);
+        previous?.Dispose();
     }
 
     private void GraceElapsed(object? state)
@@ -184,8 +188,10 @@ public sealed class ClientManager : IClientManager, IDisposable
     {
         if (Interlocked.Exchange(ref _graceActive, 0) == 1)
         {
-            _graceTimer?.Dispose();
-            _graceTimer = null;
+            // Take ownership of the timer field — a concurrent cycle may have already
+            // replaced it; disposing the exchanged value never touches the new timer.
+            var timer = Interlocked.Exchange(ref _graceTimer, null);
+            timer?.Dispose();
             if (!countdownExpired)
             {
                 _logger.Info("ClientManager", $"Pending shutdown cancelled — {reason}");

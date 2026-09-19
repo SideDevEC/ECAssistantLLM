@@ -269,3 +269,15 @@ behavior (ServerIdleShutdownTests unaffected).
 **Also (14.9.3):** `LlmHttpServer` suppresses `ObjectDisposedException` in the
 unhandled-error handler — a disposed-response race during shutdown was logging
 spurious "Cannot access a disposed object" errors.
+
+## v3 addendum note — audit fixes (14.9.3+, unreleased until next tag)
+
+- **Grace-timer race:** timer now created BEFORE publishing via `Interlocked.Exchange`;
+  cancel disposes the exchanged value — reconnect races can no longer orphan or
+  double-fire the shutdown countdown.
+- **Per-model `max_tokens` now covers process-backend models and cold starts**
+  (config lookup instead of `_slots`-only), and the global `inference.max_tokens`
+  default is honored on stateless chat paths (was session-only).
+- `GenerateDefault` writes `shutdown_grace_sec` so the knob is visible in fresh configs.
+- `ProcessModelInstance`: comment documenting the backend gpu-layers clamp gap (Vulkan+process is currently unreachable).
+- `LlmHttpServer`: disposed-response races logged-quiet (documented tradeoff: a genuine router bug disposing a live response would also be silenced).

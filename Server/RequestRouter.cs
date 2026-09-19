@@ -257,7 +257,7 @@ public sealed class RequestRouter : IRequestRouter
                 return;
             }
 
-            var maxTokens = Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, 512), 1, MaxInferenceTokens);
+            var maxTokens = Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
             var statelessClient = _processStateless;
             if (statelessClient == null)
             {
@@ -1406,7 +1406,9 @@ public sealed class RequestRouter : IRequestRouter
         var maxTokens = req.MaxTokens;
         if (maxTokens is null && !string.IsNullOrEmpty(req.Model))
         {
-            var perModel = _models.TryGetSlot(req.Model)?.Config.MaxTokens ?? 0;
+            // Config lookup covers process-backend models and cold starts (TryGetSlot may be null)
+            var perModel = _config.Models
+                .FirstOrDefault(m => m.Id.Equals(req.Model, StringComparison.OrdinalIgnoreCase))?.MaxTokens ?? 0;
             if (perModel > 0) maxTokens = perModel;
         }
         return CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, maxTokens, req.Stop);
@@ -1414,14 +1416,18 @@ public sealed class RequestRouter : IRequestRouter
 
     /// <summary>
     /// Effective chat output budget: explicit request value wins; otherwise the
-    /// per-model catalog default (ModelConfig.MaxTokens, 0 = unset); otherwise fallback.
+    /// per-model catalog default (ModelConfig.MaxTokens, 0 = unset); otherwise the
+    /// per-model config entry (covers process-backend models not present in _slots);
+    /// otherwise the caller's fallback (global inference default).
     /// </summary>
     private int EffectiveMaxTokens(string? modelId, int? reqMaxTokens, int fallback)
     {
         if (reqMaxTokens.HasValue) return reqMaxTokens.Value;
         if (!string.IsNullOrEmpty(modelId))
         {
-            var perModel = _models.TryGetSlot(modelId)?.Config.MaxTokens ?? 0;
+            // Config lookup (not _slots): covers process-backend models and cold starts
+            var perModel = _config.Models
+                .FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase))?.MaxTokens ?? 0;
             if (perModel > 0) return perModel;
         }
         return fallback;

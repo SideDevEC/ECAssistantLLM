@@ -216,6 +216,9 @@ public sealed class ProcessModelInstance : IDisposable
         sb.Append("--model ").Append(Quote(config.Path));
         sb.Append(" --host 127.0.0.1 --port ").Append(port);
         sb.Append(" --ctx-size ").Append(config.ContextSize);
+        // NOTE: GpuLayerGuard clamps in-process loads only; process-backend runs rely on
+        // the pinned runtime (Metal/CUDA, no Vulkan build). If a DeltaNet-MoE model is
+        // ever pinned to backend:"process" on a Vulkan host, add a clamp here.
         if (config.GpuLayers > 0) sb.Append(" --n-gpu-layers ").Append(config.GpuLayers);
         if (config.Threads > 0) sb.Append(" --threads ").Append(config.Threads);
         if (config.BatchSize > 0) sb.Append(" --batch-size ").Append(config.BatchSize);

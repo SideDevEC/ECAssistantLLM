@@ -98,6 +98,7 @@ public sealed class LlmServerConfig
                 MaxSessions = 8,
                 MaxVramMb = null,
                 ShutdownOnLastClient = true,
+                ShutdownGraceSec = 60,
                 HeartbeatTimeoutSec = 90,
                 HeartbeatIntervalSec = 30
             },
