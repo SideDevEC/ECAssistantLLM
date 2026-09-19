@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 36  |  LOC: 3203  |  ~1629 tokens
+Types: 39  |  LOC: 3523  |  ~1810 tokens
 
 ---
 
@@ -102,6 +102,14 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > Stub host — never starts a real child; url resolution fails fast.
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, Xunit
 
+### Class: ProcessSessionStructuredTests
+> Structured mode on process-backend models: grammar + enable_thinking=false reach
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, ECAssistant.LLM.Server, Xunit
+
+### Class: ProcessStatelessClientTests
+> Stateless process inference: sampling parity (explicit in-process defaults, never
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, ECAssistant.LLM.Server, Xunit
+
 ### Class: RouteMethodTests
 > Lightweight server harness for auth/security tests.
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
@@ -124,6 +132,10 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 > Shared collection so all integration tests use the single
 Implements: TestServerFixture>
 Cross-package deps: Xunit
+
+### Class: ServerIdleShutdownTests
+> Regression for the 2026-09-18/19 zombie: HttpListener.GetContextAsync is not
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server, Xunit
 
 ### Class: ServerLogTests
 > Tests that the server creates log files and writes meaningful entries

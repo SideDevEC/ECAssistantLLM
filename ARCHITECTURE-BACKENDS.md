@@ -119,13 +119,21 @@ Backends package depends only on Config + ServerLogger.
 - No multi-process scheduling beyond one child per model (InferenceScheduler already
   serializes; llama-server handles its own queueing).
 
-## v2 addendum note — structured decoding on Process models (14.8.2)
+## v2 addendum note — structured decoding on Process models (14.8.2 → 14.8.5)
 
-Structured mode IS supported on process models (session-scoped). The child gets
-`grammar: DecisionGrammar.Gbnf` + `chat_template_kwargs: {enable_thinking: false}`;
-the envelope early-stop + StructuredDecoder response are identical to in-process.
-Stateless process requests stay raw 1:1 passthrough (structured without session → 400).
-Verified E2E on the Prism runtime with real Bonsai weights (3/3 valid envelopes).
+Structured mode IS supported on process models — session-scoped (14.8.2) AND stateless
+(14.8.4). The child gets `grammar: DecisionGrammar.Gbnf` + `chat_template_kwargs:
+{enable_thinking: false}`; the envelope early-stop + StructuredDecoder response are
+identical to in-process. Verified E2E on the Prism runtime with real Bonsai weights.
+
+**100% parity (14.8.4/14.8.5):** stateless process chat also runs the in-process code
+shapes — ThinkFilter on streamed + non-streamed output, identical response objects,
+structured without session. The raw 1:1 proxy is UNREACHABLE from /v1/chat/completions
+(all four combinations handled explicitly); it was removed after E2E proved it silently
+swallowed stateless structured requests (14.8.5 regression fix, 10/10 E2E green).
+Sampling on ALL process payloads is driven by `ProcessPayloadFactory` with the same
+in-process defaults (temp 0.3 / top_p 0.95 / top_k 40 / repeat_penalty 1.1) — child
+llama-server defaults (temp 1.0) can never leak through.
 
 ---
 
@@ -168,8 +176,10 @@ No more 400 on `session_id`. Port allocation moves to a higher random range.
 ## Wiring changes
 
 - `RequestRouter`: `IsProcessModel` branch now handles `session_id` via
-  `ProcessSessionRegistry`; stateless requests still proxy 1:1. Structured mode remains
-  LlamaSharp-only (server-side grammar) → clean 400 for process models.
+  `ProcessSessionRegistry`; stateless process chat runs through `ProcessStatelessClient`
+  with in-process code shapes (ThinkFilter, structured, response objects). The raw 1:1
+  proxy is no longer reachable from chat (14.8.5). Structured mode works for both
+  session and stateless process requests (grammar via child).
 - `LlmHttpServer`/`Program.cs`: construct and inject `ProcessSessionRegistry`.
 - `ClientManager`: optional `ProcessSessionRegistry` — destroys process sessions on
   client disconnect/eviction, symmetric with LLamaSharp sessions.
@@ -178,8 +188,8 @@ No more 400 on `session_id`. Port allocation moves to a higher random range.
 
 ```
 RequestRouter
-   ├─► ProcessSessionRegistry ─► ProcessSession ─► HttpClient ─► child llama-server
-   └─► ProcessModelHost (stateless proxy path, unchanged)
+   ├─► ProcessSessionRegistry ─► ProcessSession ─► ProcessPayloadFactory ─► HttpClient ─► child llama-server
+   └─► ProcessStatelessClient ────┘ (stateless; same factory, no transcript)
 ```
 
 `Server → Engine → Config` layering preserved. Process sessions deliberately do NOT

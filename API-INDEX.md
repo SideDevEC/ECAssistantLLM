@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-19T07:34:50.965472+00:00
-Packages: 2  |  Types: 148
+Generated: 2026-09-19T09:58:52.926014+00:00
+Packages: 2  |  Types: 154
 
 ---
 
-## ECAssistantLLM (112 types, ~7822 LOC)
+## ECAssistantLLM (115 types, ~8328 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -81,6 +81,8 @@ Packages: 2  |  Types: 148
 - 🟡 ProcessSession : IDisposable  (ECAssistantLLM)  deps: [string, string, ModelConfig, IProcessModelHost, HttpClient, ILogger]
 - 🟡 ProcessSessionRegistry : IDisposable  (ECAssistantLLM)  deps: [IProcessModelHost, LlmServerConfig, ILogger, Func]
 - 🟡 ProcessSessionRegistryTests  (ECAssistantLLM)
+- 🟡 ProcessSessionStructuredTests  (ECAssistantLLM)
+- 🟡 ProcessStatelessClientTests  (ECAssistantLLM)
 - 🟡 PromptCacheSession : IDisposable  (ECAssistantLLM)  deps: [string, LLamaWeights, ModelParams, ILogger]
 - 🟡 PromptCacheSessionManager : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, ILogger]
 - 🟡 ProxyRequestHandler  (ECAssistantLLM)
@@ -93,6 +95,7 @@ Packages: 2  |  Types: 148
 - 🟡 RuntimeLocatorTests  (ECAssistantLLM)
 - 🟡 SecurityHarness : IDisposable  (ECAssistantLLM)
 - 🟡 ServerCollection : TestServerFixture>  (ECAssistantLLM)
+- 🟡 ServerIdleShutdownTests  (ECAssistantLLM)
 - 🟡 ServerLogTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ServerLogger : ILogger  (ECAssistantLLM)  deps: [LogLevel minLevel =, string? logFile =]
 - 🟡 ServerSection  (ECAssistantLLM)
@@ -120,7 +123,7 @@ Packages: 2  |  Types: 148
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 
-## Tests (36 types, ~3203 LOC)
+## Tests (39 types, ~3523 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -141,11 +144,14 @@ Packages: 2  |  Types: 148
 - 🟡 ModelPathRestrictionTests : IDisposable  (Tests)
 - 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ProcessSessionRegistryTests  (Tests)
+- 🟡 ProcessSessionStructuredTests  (Tests)
+- 🟡 ProcessStatelessClientTests  (Tests)
 - 🟡 RouteMethodTests  (Tests)
 - 🟡 RoutingTests  (Tests)  deps: [TestServerFixture]
 - 🟡 RuntimeLocatorTests  (Tests)
 - 🟡 SecurityHarness : IDisposable  (Tests)
 - 🟡 ServerCollection : TestServerFixture>  (Tests)
+- 🟡 ServerIdleShutdownTests  (Tests)
 - 🟡 ServerLogTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SessionLifecycleTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]

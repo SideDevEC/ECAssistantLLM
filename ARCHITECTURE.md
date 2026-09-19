@@ -65,7 +65,9 @@ ECAssistantLLM/                 # 22 .cs files, ~2,537 LOC
 │    ├── ProcessModelInstance.cs # One llama-server child process: spawn, health check, stop
 │    ├── ProcessModelHost.cs     # Supervises child processes; lazy start, race-safe; stateless proxy endpoint
 │    ├── ProcessSession.cs       # Transcript-backed session for process models (session parity, prefix cache)
-│    └── ProcessSessionRegistry.cs # Client-namespaced process sessions; mirrors SessionRegistry API
+│    ├── ProcessSessionRegistry.cs # Client-namespaced process sessions; mirrors SessionRegistry API
+│    ├── ProcessPayloadFactory.cs  # Single source for child chat payloads: sampling parity with in-process (explicit defaults), grammar/thinking fields
+│    └── ProcessStatelessClient.cs # Stateless (no-transcript) child inference; ThinkFilter/structured handled by router, in-process shapes
 │
 ├── Engine/                    # Core engine (owns LLamaSharp types)
 │    ├── MultiModelHost.cs       # Loads/unloads 2+ models; provides slots by ID; ModelInfo record
