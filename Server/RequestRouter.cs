@@ -257,7 +257,7 @@ public sealed class RequestRouter : IRequestRouter
                 return;
             }
 
-            var maxTokens = Math.Clamp(req.MaxTokens ?? 512, 1, MaxInferenceTokens);
+            var maxTokens = Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, 512), 1, MaxInferenceTokens);
             var statelessClient = _processStateless;
             if (statelessClient == null)
             {
@@ -1399,8 +1399,33 @@ public sealed class RequestRouter : IRequestRouter
         return LLama.Transformers.PromptTemplateTransformer.ToModelPrompt(template);
     }
 
-    private static LLama.Common.InferenceParams CreateInferenceParams(ChatCompletionRequest req)
-        => CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, req.MaxTokens, req.Stop);
+    private LLama.Common.InferenceParams CreateInferenceParams(ChatCompletionRequest req)
+    {
+        // Per-model output budget: req wins, then catalog-configured model default
+        // (thinking models need more room than the global default).
+        var maxTokens = req.MaxTokens;
+        if (maxTokens is null && !string.IsNullOrEmpty(req.Model))
+        {
+            var perModel = _models.TryGetSlot(req.Model)?.Config.MaxTokens ?? 0;
+            if (perModel > 0) maxTokens = perModel;
+        }
+        return CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, maxTokens, req.Stop);
+    }
+
+    /// <summary>
+    /// Effective chat output budget: explicit request value wins; otherwise the
+    /// per-model catalog default (ModelConfig.MaxTokens, 0 = unset); otherwise fallback.
+    /// </summary>
+    private int EffectiveMaxTokens(string? modelId, int? reqMaxTokens, int fallback)
+    {
+        if (reqMaxTokens.HasValue) return reqMaxTokens.Value;
+        if (!string.IsNullOrEmpty(modelId))
+        {
+            var perModel = _models.TryGetSlot(modelId)?.Config.MaxTokens ?? 0;
+            if (perModel > 0) return perModel;
+        }
+        return fallback;
+    }
 
     /// <summary>Server-side upper bound for client-supplied max_tokens. Prevents a
     /// single request from pinning the model generating far beyond any usable answer.</summary>

@@ -52,4 +52,12 @@ public sealed class ModelConfig
     /// </summary>
     [JsonPropertyName("backend")]
     public string Backend { get; set; } = "auto";
+
+    /// <summary>
+    /// Per-model default output tokens for chat requests that don't set max_tokens.
+    /// 0 = use the global inference default. Lets the catalog tune output budget per
+    /// model (e.g. thinking models need more room).
+    /// </summary>
+    [JsonPropertyName("max_tokens")]
+    public int MaxTokens { get; set; } = 0;
 }
