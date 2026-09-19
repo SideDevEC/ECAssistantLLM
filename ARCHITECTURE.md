@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-09-19 (v14.8.x — 100% process-backend parity incl. structured mode; orphan-proofed backends: pid files + safe reap + OS-verified ports; SSE byte-deterministic cross-OS; 3-OS CI test matrix)
+**Updated:** 2026-09-19 (v14.9.0 — Vulkan safety guard: DeltaNet-MoE models clamped to CPU on Vulkan (llama.cpp #26945); GGUF architecture reader; plus 14.8.x: process-backend parity, orphan-proofing, SSE determinism, 3-OS CI)
 **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview

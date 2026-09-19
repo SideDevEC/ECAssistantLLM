@@ -1,0 +1,67 @@
+name: Model validation (on-demand)
+
+# "Does model X run on platform Y with backend Z?" — on-demand button.
+# Downloads the real weights on the runner, boots our server, runs chat/stream
+# (and vision when an mmproj URL is given). Not part of routine CI.
+
+on:
+  workflow_dispatch:
+    inputs:
+      gguf_url:
+        description: 'Hugging Face URL of the GGUF file (resolve/main/...)'
+        required: true
+      mmproj_url:
+        description: 'Optional mmproj URL (enables vision check)'
+        required: false
+        default: ''
+      model_id:
+        description: 'Model id used in the test config'
+        required: false
+        default: 'validated'
+      gpu_layers:
+        description: 'GPU layers (0 = CPU; 99 = full GPU — Metal on macOS runners)'
+        required: false
+        default: '0'
+      context_size:
+        description: 'Context size'
+        required: false
+        default: '4096'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download model
+        run: curl -L --retry 3 -o model.gguf "${{ inputs.gguf_url }}"
+        shell: bash
+
+      - name: Download mmproj (optional)
+        if: ${{ inputs.mmproj_url != '' }}
+        run: curl -L --retry 3 -o mmproj.gguf "${{ inputs.mmproj_url }}"
+        shell: bash
+
+      - name: Validate model (chat + stream + optional vision)
+        env:
+          SMOKE_MODEL_PATH: ${{ github.workspace }}/model.gguf
+          SMOKE_MMPROJ_PATH: ${{ github.workspace }}/mmproj.gguf
+          SMOKE_GPU_LAYERS: ${{ inputs.gpu_layers }}
+          SMOKE_CONTEXT_SIZE: ${{ inputs.context_size }}
+        run: dotnet test Tests/ECAssistantLLM.Tests.csproj --nologo --filter "FullyQualifiedName~ModelSmokeE2E"
+        shell: bash

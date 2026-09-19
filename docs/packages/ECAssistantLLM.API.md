@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 114  |  LOC: 8306  |  ~4940 tokens
+Types: 121  |  LOC: 8786  |  ~5234 tokens
 
 ---
 
@@ -174,6 +174,20 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 ### Class: ErrorResponse
 > Generic API error response.
 
+### Class: GgufArchitectureReader
+> Reads the <c>general.architecture</c> metadata value from a GGUF header.
+
+### Class: GgufArchitectureReaderTests
+> GgufArchitectureReader against minimal synthetic GGUF streams.
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
+
+### Class: GpuLayerGuard
+> Clamps configured GPU layers when the combination would hit a known upstream crash.
+
+### Class: GpuLayerGuardTests
+> GpuLayerGuard decision table: only Vulkan + DeltaNet-MoE + configured layers clamps.
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
+
 ### Class: HealthTests
 > Tests for GET /eca/health.
 Constructor:
@@ -268,7 +282,11 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 Implements: IDisposable
 Constructor:
   - ModelSlot(string id, ModelConfig config, ILogger logger, string rootDir)
-Cross-package deps: LLama, LLama.Common, LLama.Native, ECAssistant.LLM.Config
+Cross-package deps: LLama, LLama.Common, LLama.Native, ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
+
+### Class: ModelSmokeE2E
+> Cross-OS model smoke test — runs our REAL server (in-process LLamaSharp path)
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, ECAssistant.LLM.Server, Xunit
 
 ### Class: ModelsTests
 > Tests for the model catalog endpoints (GET /v1/models and GET /eca/models).
@@ -495,11 +513,19 @@ Cross-package deps: ECAssistant.LLM.Config
 > Pure-logic tests for VRAM budget reserve/release/exceed accounting.
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
 
+### Class: VulkanAvailabilityProbe
+> Determines whether Vulkan is the GPU backend an in-process LLamaSharp model would use.
+
 ### Record: ClientInfo
 > Manages client connections: registration, heartbeat, eviction.
 Constructor:
   - ClientInfo(string Id, string Name, string Version, DateTime RegisteredAt, DateTime LastHeartbeat, int ActiveSessions)
 Cross-package deps: ECAssistant.LLM.Interfaces
+
+### Record: GpuLayerDecision
+> Result of a GPU-layer guard decision: the layer count that should actually be used,
+Constructor:
+  - GpuLayerDecision(int EffectiveGpuLayers, bool Clamped, string? Reason)
 
 ### Record: ModelInfo
 > Manages multiple loaded models (at least 2: main + embeddings).

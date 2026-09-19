@@ -1,0 +1,44 @@
+name: Model smoke (3 OS)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            gpu_layers: 0
+          - os: windows-latest
+            gpu_layers: 0
+          - os: macos-latest
+            gpu_layers: 99 # arm64 runner — exercises the real Metal path
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download smoke model (Qwen3.5-0.8B Q4_K_M, ~0.5 GB)
+        run: curl -L --retry 3 -o smoke.gguf "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf"
+        shell: bash
+
+      - name: Run model smoke E2E
+        env:
+          SMOKE_MODEL_PATH: ${{ github.workspace }}/smoke.gguf
+          SMOKE_GPU_LAYERS: ${{ matrix.gpu_layers }}
+        run: dotnet test Tests/ECAssistantLLM.Tests.csproj --nologo --filter "FullyQualifiedName~ModelSmokeE2E"
+        shell: bash

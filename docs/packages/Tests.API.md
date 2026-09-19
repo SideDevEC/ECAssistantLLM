@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 40  |  LOC: 3632  |  ~1878 tokens
+Types: 43  |  LOC: 3944  |  ~2027 tokens
 
 ---
 
@@ -48,6 +48,14 @@ Constructor:
   - ErrorHandlingTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
+### Class: GgufArchitectureReaderTests
+> GgufArchitectureReader against minimal synthetic GGUF streams.
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
+
+### Class: GpuLayerGuardTests
+> GpuLayerGuard decision table: only Vulkan + DeltaNet-MoE + configured layers clamps.
+Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
+
 ### Class: HealthTests
 > Tests for GET /eca/health.
 Constructor:
@@ -91,6 +99,10 @@ Cross-package deps: ECAssistant.LLM.Server
 > Lightweight server harness for auth/security tests.
 Implements: IDisposable
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
+
+### Class: ModelSmokeE2E
+> Cross-OS model smoke test — runs our REAL server (in-process LLamaSharp path)
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, ECAssistant.LLM.Server, Xunit
 
 ### Class: ModelsTests
 > Tests for the model catalog endpoints (GET /v1/models and GET /eca/models).

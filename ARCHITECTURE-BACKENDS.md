@@ -240,3 +240,16 @@ reserve VramBudget (weights + KV are owned by the child process, not this server
 - `Tests/Backends/BackendPortAllocatorTests.cs` — range bounds, used-port skips, exhaustion.
 - `Tests/Backends/ProcessSessionRegistryTests.cs` — create/duplicate/max/destroy, transcript
   save/rewind/reset semantics (no HTTP — transcript logic is isolated from the transport).
+
+## v3 addendum note — Vulkan DeltaNet-MoE guard (14.9.0)
+
+**Vulkan + `qwen3_5moe` family + `gpu_layers > 0` crashes** (partial offload,
+llama.cpp issue #26945, unfixed upstream as of 2026-09-19). At model load,
+`ModelSlot` computes the effective GPU layers via:
+
+- `GgufArchitectureReader` — reads `general.architecture` from the GGUF header
+- `VulkanAvailabilityProbe` — Vulkan is primary iff Windows/Linux AND no CUDA driver
+- `GpuLayerGuard.Compute` — clamps to 0 + logs reason when the crash combo is detected
+
+Config `gpu_layers` is never rewritten; Metal/CUDA machines and dense models are
+unaffected. Remove this guard once upstream ships the fix.

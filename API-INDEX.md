@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-19T10:54:38.843227+00:00
-Packages: 2  |  Types: 154
+Generated: 2026-09-19T12:22:29.428614+00:00
+Packages: 2  |  Types: 164
 
 ---
 
-## ECAssistantLLM (114 types, ~8306 LOC)
+## ECAssistantLLM (121 types, ~8786 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -48,6 +48,11 @@ Packages: 2  |  Types: 154
 - 🟡 ErrorDetail  (ECAssistantLLM)
 - 🟡 ErrorHandlingTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ErrorResponse  (ECAssistantLLM)
+- 🟡 GgufArchitectureReader  (ECAssistantLLM)
+- 🟡 GgufArchitectureReaderTests  (ECAssistantLLM)
+- 🟣 GpuLayerDecision  (ECAssistantLLM)  deps: [int, bool, string]
+- 🟡 GpuLayerGuard  (ECAssistantLLM)
+- 🟡 GpuLayerGuardTests  (ECAssistantLLM)
 - 🟡 HealthTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 HeartbeatRequest  (ECAssistantLLM)
 - 🟡 HeartbeatResponse  (ECAssistantLLM)
@@ -69,6 +74,7 @@ Packages: 2  |  Types: 154
 - 🟡 ModelPathPolicyTests  (ECAssistantLLM)
 - 🟡 ModelPathRestrictionTests : IDisposable  (ECAssistantLLM)
 - 🟡 ModelSlot : IDisposable  (ECAssistantLLM)  deps: [string, ModelConfig, ILogger, string]
+- 🟡 ModelSmokeE2E  (ECAssistantLLM)
 - 🟡 ModelsTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 MtmdMarkerResolver  (ECAssistantLLM)
 - 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger, string, BackendSelector? backendSelector =]
@@ -121,8 +127,9 @@ Packages: 2  |  Types: 154
 - 🟡 VisionInferenceE2ETests  (ECAssistantLLM)
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 - 🟡 VramBudgetTests  (ECAssistantLLM)
+- 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (40 types, ~3632 LOC)
+## Tests (43 types, ~3944 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -133,6 +140,8 @@ Packages: 2  |  Types: 154
 - 🟡 ConcurrentRequestTests  (Tests)  deps: [TestServerFixture]
 - 🟡 EmbeddingsTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ErrorHandlingTests  (Tests)  deps: [TestServerFixture]
+- 🟡 GgufArchitectureReaderTests  (Tests)
+- 🟡 GpuLayerGuardTests  (Tests)
 - 🟡 HealthTests  (Tests)  deps: [TestServerFixture]
 - 🟡 HeartbeatTests  (Tests)  deps: [TestServerFixture]
 - 🟡 KvCacheTests  (Tests)  deps: [TestServerFixture]
@@ -141,6 +150,7 @@ Packages: 2  |  Types: 154
 - 🟡 ModelLoadTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ModelPathPolicyTests  (Tests)
 - 🟡 ModelPathRestrictionTests : IDisposable  (Tests)
+- 🟡 ModelSmokeE2E  (Tests)
 - 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ProcessOrphanReapTests : IDisposable  (Tests)
 - 🟡 ProcessSessionRegistryTests  (Tests)

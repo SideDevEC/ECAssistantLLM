@@ -2,6 +2,7 @@ using LLama;
 using LLama.Common;
 using LLama.Native;
 using ECAssistant.LLM.Config;
+using ECAssistant.LLM.Engine.Backends;
 
 namespace ECAssistant.LLM.Engine;
 
@@ -70,6 +71,12 @@ public sealed class ModelSlot : IDisposable
     /// <summary>True when this model accepts image input (mmproj configured).</summary>
     public bool SupportsVision => Config.SupportsVision;
 
+    /// <summary>
+    /// GPU layers actually applied after the Vulkan DeltaNet-MoE guard.
+    /// Differs from Config.GpuLayers when the guard clamped (Vulkan + qwen3_5moe).
+    /// </summary>
+    public int EffectiveGpuLayers { get; private set; }
+
     public ModelSlot(string id, ModelConfig config, ILogger logger, string rootDir)
     {
         Id = id ?? throw new ArgumentNullException(nameof(id));
@@ -93,7 +100,18 @@ public sealed class ModelSlot : IDisposable
             return;
 
         var resolvedPath = ResolveModelPath(Config.Path, _rootDir);
-        Params = CreateModelParams(Config, resolvedPath);
+
+        // Vulkan guard: hybrid DeltaNet-MoE models crash on partial GPU offload under
+        // Vulkan (llama.cpp #26945). Compute the effective layer count before load.
+        var decision = GpuLayerGuard.Compute(
+            Config.GpuLayers,
+            GgufArchitectureReader.ReadArchitecture(resolvedPath),
+            VulkanAvailabilityProbe.IsVulkanPrimary());
+        if (decision.Clamped)
+            _logger.Warn("ModelSlot", decision.Reason!);
+        EffectiveGpuLayers = decision.EffectiveGpuLayers;
+
+        Params = CreateModelParams(Config, resolvedPath, decision.EffectiveGpuLayers);
 
         try
         {
@@ -108,7 +126,7 @@ public sealed class ModelSlot : IDisposable
             }
 
             _logger.Info("ModelSlot", $"Loaded model '{Id}' from {resolvedPath} " +
-                $"(gpu_layers={Config.GpuLayers}, ctx={Config.ContextSize}" +
+                $"(gpu_layers={EffectiveGpuLayers}, ctx={Config.ContextSize}" +
                 (Config.IsEmbedding ? $", embed_dim={EmbeddingDim}" : "") + ")");
         }
         catch (Exception ex)
@@ -153,12 +171,12 @@ public sealed class ModelSlot : IDisposable
         }
     }
 
-    private static ModelParams CreateModelParams(ModelConfig config, string? resolvedPath = null)
+    private static ModelParams CreateModelParams(ModelConfig config, string? resolvedPath = null, int? effectiveGpuLayers = null)
     {
         var path = resolvedPath ?? config.Path;
         var mp = new ModelParams(path)
         {
-            GpuLayerCount = Math.Clamp(config.GpuLayers, 0, 100),
+            GpuLayerCount = Math.Clamp(effectiveGpuLayers ?? config.GpuLayers, 0, 100),
             ContextSize = config.ContextSize,
             Threads = config.Threads == -1 ? null : config.Threads,
         };
