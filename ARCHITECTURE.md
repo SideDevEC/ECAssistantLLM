@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-09-19 (v14.7.x — process-backend sessions: Bonsai/ternary models gain full session parity; random backend port range 20000-25000)
+**Updated:** 2026-09-19 (v14.8.x — 100% process-backend parity incl. structured mode; orphan-proofed backends: pid files + safe reap + OS-verified ports; SSE byte-deterministic cross-OS; 3-OS CI test matrix)
 **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview

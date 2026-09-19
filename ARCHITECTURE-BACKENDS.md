@@ -137,6 +137,46 @@ llama-server defaults (temp 1.0) can never leak through.
 
 ---
 
+# Backend Abstraction Architecture — v3 Addendum: Reliability Hardening (2026-09-19)
+
+**Goal:** kill the parent server however you like (SIGKILL, crash, power loss) and the
+system self-heals: no orphaned children, no port collisions, no corrupted state.
+Zero extra processes.
+
+## PID files + safe orphan reap (14.8.7)
+
+- `ProcessModelInstance` writes `backends/<model>.pid` (`pid<TAB>binaryName`) once the
+  child is healthy; deletes it on graceful stop.
+- `ReapOrphan(pidFile, logger)` runs BEFORE spawning a fresh child:
+  - child dead → stale record deleted;
+  - child alive AND process name matches the recorded binary name (equality OR prefix —
+    macOS truncates `Process.ProcessName` to 15 chars, p_comm limit) → killed with its
+    whole tree (the llama-server-left-behind scenario);
+  - **PID-reuse guard:** name mismatch → process NEVER killed, record discarded;
+  - malformed/unreadable files → cleaned up.
+
+## OS-verified port allocation (14.8.7)
+
+`ProcessModelHost.AllocatePort` probe-binds every allocator candidate on loopback
+(`BackendPortAllocator.IsPortFree`) before committing — ports held by orphans or any
+unrelated service are skipped instead of colliding. Max 10 probes, then a clear error.
+
+## SSE byte-determinism (14.8.7)
+
+`SseStreamer` writes explicit `\n\n` terminators — `StreamWriter.WriteLineAsync` would
+translate to `\r\n` on Windows (`Environment.NewLine`), making SSE bodies OS-dependent.
+Now byte-identical on macOS/Linux/Windows.
+
+## CI: 3-OS test matrix (tests.yml)
+
+Unit suite (`Category != E2E` — E2E needs real GGUF weights, stays local) runs on
+**ubuntu / macos / windows** runners on every push to main + manual dispatch. The very
+first matrix run caught two real cross-platform bugs (SSE \r\n on Windows; macOS
+ProcessName truncation defeating the reap guard). Windows-only process-spawn tests are
+platform-guarded; everything else runs everywhere.
+
+---
+
 # Backend Abstraction Architecture — v2 Addendum: Process Sessions (2026-09-19)
 
 **Goal:** Process-backend models behave EXACTLY like in-process models from the client's
