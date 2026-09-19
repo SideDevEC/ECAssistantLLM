@@ -14,7 +14,7 @@
          The wizard copies it to ~/.ECAssistantLLM/server/ on first install. -->
     <IsPackable>true</IsPackable>
     <PackageId>ECAssistant.LLM.Server</PackageId>
-    <PackageVersion>14.8.0</PackageVersion>
+    <PackageVersion>14.8.1</PackageVersion>
     <Authors>SideDevEC</Authors>
     <Company>SideDevEC</Company>
     <Product>ECAssistantLLM</Product>
@@ -24,6 +24,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <SuppressDependenciesWhenPacking>false</SuppressDependenciesWhenPacking>
   </PropertyGroup>
 
   <ItemGroup>
@@ -70,7 +71,7 @@
     <Content Include="$(OutputPath)System.Text.Encodings.Web.dll" Pack="true" PackagePath="content/server/" />
     <Content Include="$(OutputPath)System.Text.Json.dll" Pack="true" PackagePath="content/server/" />
     <!-- Native runtimes -->
-    <Content Include="$(OutputPath)runtimes\**" Pack="true" PackagePath="content/server/runtimes/" />
+    <Content Include="$(OutputPath)runtimes\**" Pack="true" PackagePath="content/server/runtimes/" CopyToOutputDirectory="Never" />
     <!-- Install manifest: the wizard (Core) reads this to install backend runtimes. LLM owns the knowledge; Core only parses the file. -->
     <Content Include="Assets\install-manifest.json" Pack="true" PackagePath="content/server/" />
     <Content Include="Assets\install-manifest.json" CopyToOutputDirectory="PreserveNewest" />
@@ -82,4 +83,8 @@
     <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
+  <!-- Pack dedupe: LLamaSharp's backend .props inject native runtimes as Content items with
+       CopyToOutputDirectory. Default content auto-packing would duplicate them into
+       contentFiles/ and content/ root — only content/server/ is functional (wizard + .targets).
+       Strip them at pack time; build output (dotnet run) is unaffected. -->
 </Project>

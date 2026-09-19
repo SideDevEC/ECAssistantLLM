@@ -55,6 +55,9 @@ jobs:
             /p:PackageVersion=${{ steps.version.outputs.version }} \
             -o ./nupkg
 
+      - name: Trim duplicate content trees (contentFiles + content root)
+        run: python3 scripts/trim-nupkg.py ./nupkg/ECAssistant.LLM.Server.${{ steps.version.outputs.version }}.nupkg
+
       - name: Publish to GitHub Packages
         run: |
           dotnet nuget push ./nupkg/*.nupkg \
