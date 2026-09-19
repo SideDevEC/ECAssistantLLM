@@ -23,25 +23,10 @@ public sealed class RequestRouter : IRequestRouter
     private readonly LlmServerConfig _config;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
-    private readonly PromptCacheSessionManager _promptCache;
     private readonly IProcessModelHost? _processHost;
     private readonly ProcessSessionRegistry? _processSessions;
     private readonly ProcessStatelessClient? _processStateless;
     private readonly BackendSelector _backendSelector = new();
-
-    /// <summary>
-    /// Warm prompt-cache routing for stateless calls. DISABLED by default pending upstream
-    /// verification: SaveState/LoadState appears not to capture Gated Delta Net recurrent
-    /// state on Qwen3.6-35B-A3B (hybrid arch), causing progressively degraded outputs on
-    /// repeated restores. Plain-attention models (Qwen3-8B) verified OK. Re-enable once a
-    /// snapshot-faithful path is confirmed.
-    ///
-    /// ⚠ DEAD CODE at runtime: while this stays false, PromptCacheSession /
-    /// PromptCacheSessionManager are unreachable from live traffic. Treat both as
-    /// VOLATILE/experimental — do not build production guarantees on them, and
-    /// re-verify snapshot fidelity before flipping this flag on.
-    /// </summary>
-    public static bool EnableWarmPromptCache { get; set; } = false;
 
     public RequestRouter(
         MultiModelHost models,
@@ -66,7 +51,6 @@ public sealed class RequestRouter : IRequestRouter
         _processHost = processHost;
         _processSessions = processSessions;
         _processStateless = processHost != null ? new ProcessStatelessClient(processHost) : null;
-        _promptCache = new PromptCacheSessionManager(models, logger);
     }
 
     public async Task RouteAsync(HttpListenerContext ctx, CancellationToken ct)
@@ -98,7 +82,7 @@ public sealed class RequestRouter : IRequestRouter
                              || (path == "/v1/completions" && method == "POST")
                              || (path == "/v1/embeddings" && method == "POST")
                              || (path == "/v1/models" && method == "GET");
-        if (isOpenAiEndpoint && (string.IsNullOrEmpty(clientId) || !_clients.IsValid(clientId)))
+        if (isOpenAiEndpoint && (clientId is null || clientId.Length == 0 || !_clients.IsValid(clientId)))
         {
             await WriteInvalidClientAsync(res);
             return;
@@ -106,10 +90,10 @@ public sealed class RequestRouter : IRequestRouter
 
         // ── OpenAI-compatible endpoints ──
         if (path == "/v1/chat/completions" && method == "POST")
-        { await HandleChatCompletionAsync(ctx, clientId, ct); return; }
+        { await HandleChatCompletionAsync(ctx, clientId!, ct); return; }
 
         if (path == "/v1/completions" && method == "POST")
-        { await HandleCompletionAsync(ctx, clientId, ct); return; }
+        { await HandleCompletionAsync(ctx, clientId!, ct); return; }
 
         if (path == "/v1/embeddings" && method == "POST")
         { await HandleEmbeddingsAsync(ctx, clientId, ct); return; }
@@ -274,17 +258,24 @@ public sealed class RequestRouter : IRequestRouter
             }
 
             var maxTokens = Math.Clamp(req.MaxTokens ?? 512, 1, MaxInferenceTokens);
+            var statelessClient = _processStateless;
+            if (statelessClient == null)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
+                return;
+            }
             if (req.Stream)
             {
                 var tokenStream = ThinkFilter.ApplyAsync(
-                    _processStateless.InferStatelessAsync(req.Model, req.Messages, req, grammar: null, maxTokens, ct), ct);
+                    statelessClient.InferStatelessAsync(req.Model, req.Messages, req, grammar: null, maxTokens, ct), ct);
                 await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
             }
             else
             {
                 var sb = new StringBuilder();
                 await foreach (var token in ThinkFilter.ApplyAsync(
-                    _processStateless.InferStatelessAsync(req.Model, req.Messages, req, grammar: null, maxTokens, ct), ct))
+                    statelessClient.InferStatelessAsync(req.Model, req.Messages, req, grammar: null, maxTokens, ct), ct))
                     sb.Append(token);
 
                 var response = new
@@ -343,14 +334,17 @@ public sealed class RequestRouter : IRequestRouter
             }
             else
             {
-                if (_processStateless == null)
+                // Hoist to a local: field null-state is invalidated by the awaited
+                // WriteJsonAsync above, and the compiler can't track it across.
+                var stateless = _processStateless;
+                if (stateless == null)
                 {
                     await SseStreamer.WriteJsonAsync(ctx.Response,
                         new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
                     return;
                 }
                 var structuredMaxTokens = Math.Clamp(Math.Min(req.MaxTokens ?? 256, 256), 1, 256);
-                structuredStream = _processStateless.InferStatelessAsync(
+                structuredStream = stateless.InferStatelessAsync(
                     req.Model, req.Messages, req, grammar: DecisionGrammar.Gbnf, structuredMaxTokens, ct);
                 sessionIdLabel = "stateless";
             }
@@ -384,10 +378,13 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var session = _processSessions?.Get(clientId, req.SessionId);
+        // By this point req.SessionId is non-null (both SessionId==null branches returned
+        // above), but the compiler can't track it through the awaited branches — assert it.
+        var sessionId = req.SessionId!;
+        var session = _processSessions?.Get(clientId, sessionId);
         if (session == null)
         {
-            await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
+            await WriteSessionNotFoundAsync(ctx.Response, sessionId);
             return;
         }
 
@@ -432,7 +429,7 @@ public sealed class RequestRouter : IRequestRouter
     private async Task HandleChatCompletionAsync(HttpListenerContext ctx, string clientId, CancellationToken ct)
     {
         var (req, ok, rawBody) = await ReadBodyOrErrorAsync<ChatCompletionRequest>(ctx, ct);
-        if (!ok) return;
+        if (!ok || req is null) return; // tuple: compiler can't narrow req from ok alone
 
         // M-10: a JSON null model field deserializes to null even though the DTO
         // default is "main" — TryGetSlot(null) would throw (500). Return 400 instead.
@@ -527,7 +524,7 @@ public sealed class RequestRouter : IRequestRouter
             }
 
             structuredSw.Stop();
-            _logger.Info("Router", $"[Structured] generated {structuredSb.Length} chars in {structuredSw.ElapsedMilliseconds} ms");
+            _logger.Info("Router", $"[Structured] generated {structuredSb.Length} chars (earlyStop={earlyStop}) in {structuredSw.ElapsedMilliseconds} ms");
             try
             {
                 var envelope = StructuredDecoder.Decode(structuredSb.ToString());
@@ -596,7 +593,7 @@ public sealed class RequestRouter : IRequestRouter
     private async Task HandleCompletionAsync(HttpListenerContext ctx, string clientId, CancellationToken ct)
     {
         var (req, ok, rawBody) = await ReadBodyOrErrorAsync<CompletionRequest>(ctx, ct);
-        if (!ok) return;
+        if (!ok || req is null) return; // tuple: compiler can't narrow req from ok alone
 
         // M-10: guard null model fields — 400, not a 500 from TryGetSlot(null).
         if (string.IsNullOrWhiteSpace(req.Model))
@@ -1242,7 +1239,14 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        // Use LLamaSharp tokenizer via a temporary context
+        // Use LLamaSharp tokenizer via a temporary context. Weights can be null for
+        // embedding-only slots (and are null before LoadAllAsync completes) — guard the NRE.
+        if (slot.Weights == null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Model weights not loaded", Type = "model_error" } }, 503);
+            return;
+        }
         using var tempCtx = slot.Weights.CreateContext(slot.Params);
         var tokenIds = tempCtx.Tokenize(req.Text, addBos: false).Select(t => (int)t).ToArray();
         await SseStreamer.WriteJsonAsync(ctx.Response, new TokenizeResponse
@@ -1352,9 +1356,7 @@ public sealed class RequestRouter : IRequestRouter
         CancellationToken ct)
         => images is { Count: > 0 }
             ? StatelessVisionInferAsync(slot, prompt, inferenceParams, images, ct)
-            : EnableWarmPromptCache
-                ? _promptCache.InferAsync(slot, prompt, inferenceParams, ct)
-                : StatelessInferAsync(slot, prompt, inferenceParams, ct);
+            : StatelessInferAsync(slot, prompt, inferenceParams, ct);
 
     private static string ExtractSessionIdFromPath(string path, string suffix)
     {

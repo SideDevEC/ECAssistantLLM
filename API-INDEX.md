@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-19T09:58:52.926014+00:00
-Packages: 2  |  Types: 154
+Generated: 2026-09-19T10:09:27.910368+00:00
+Packages: 2  |  Types: 152
 
 ---
 
-## ECAssistantLLM (115 types, ~8328 LOC)
+## ECAssistantLLM (113 types, ~8116 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -83,8 +83,6 @@ Packages: 2  |  Types: 154
 - 🟡 ProcessSessionRegistryTests  (ECAssistantLLM)
 - 🟡 ProcessSessionStructuredTests  (ECAssistantLLM)
 - 🟡 ProcessStatelessClientTests  (ECAssistantLLM)
-- 🟡 PromptCacheSession : IDisposable  (ECAssistantLLM)  deps: [string, LLamaWeights, ModelParams, ILogger]
-- 🟡 PromptCacheSessionManager : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, ILogger]
 - 🟡 ProxyRequestHandler  (ECAssistantLLM)
 - 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource, IProcessModelHost? processHost =, ProcessSessionRegistry? processSessions =]
 - 🟡 RewindResponse  (ECAssistantLLM)

@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 115  |  LOC: 8328  |  ~5003 tokens
+Types: 113  |  LOC: 8116  |  ~4865 tokens
 
 ---
 
@@ -338,20 +338,6 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECA
 ### Class: ProcessStatelessClientTests
 > Stateless process inference: sampling parity (explicit in-process defaults, never
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Models, ECAssistant.LLM.Server, Xunit
-
-### Class: PromptCacheSession
-> Persistent prompt-cache session reusing warm KV state across stateless/background calls
-Implements: IDisposable
-Constructor:
-  - PromptCacheSession(string modelId, LLamaWeights weights, ModelParams modelParams, ILogger logger)
-Cross-package deps: LLama, LLama.Common
-
-### Class: PromptCacheSessionManager
-> Owns one <see cref="PromptCacheSession"/> per model slot (lazily created).
-Implements: IDisposable
-Constructor:
-  - PromptCacheSessionManager(MultiModelHost models, ILogger logger)
-Cross-package deps: LLama.Common
 
 ### Class: ProxyRequestHandler
 > Stateless 1:1 proxy: forwards an incoming HttpListener request to a target base URL

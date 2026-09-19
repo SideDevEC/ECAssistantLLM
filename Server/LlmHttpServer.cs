@@ -70,9 +70,10 @@ public sealed class LlmHttpServer : IDisposable
     /// </summary>
     public async Task RunAsync(CancellationToken ct)
     {
+        var cts = _cts ?? throw new InvalidOperationException("CTS not initialized — construct via the primary constructor");
         // Link the per-run token with the constructor-provided _cts — do NOT overwrite it,
         // RequestRouter holds a reference to _cts for shutdown handling.
-        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
+        using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct, cts.Token);
         _listener.Start();
 
         // HttpListener.GetContextAsync is not cancellable — without this registration the
@@ -116,7 +117,7 @@ public sealed class LlmHttpServer : IDisposable
                     await _requestGate.WaitAsync(runCts.Token);
                     gateAcquired = true;
 
-                    await _router.RouteAsync(ctx, _cts.Token);
+                    await _router.RouteAsync(ctx, cts.Token);
                 }
                 catch (System.Text.Json.JsonException)
                 {
@@ -149,7 +150,7 @@ public sealed class LlmHttpServer : IDisposable
                         _requestGate.Release();
                     try { ctx.Response.Close(); } catch { }
                 }
-            }, _cts.Token);
+            }, cts.Token);
         }
 
         _logger.Info("Server", "Shutting down...");

@@ -1,7 +1,7 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantLLM
 
-Generated: 2026-09-19T09:58:52.926445+00:00
-Edges: 30  |  Packages: 2
+Generated: 2026-09-19T10:09:27.910885+00:00
+Edges: 28  |  Packages: 2
 
 ---
 
@@ -25,8 +25,6 @@ Edges: 30  |  Packages: 2
 - ProcessSession ──uses──► IProcessModelHost (ECAssistantLLM)
 - ProcessSessionRegistry ──uses──► ILogger (ECAssistantLLM)
 - ProcessSessionRegistry ──uses──► IProcessModelHost (ECAssistantLLM)
-- PromptCacheSession ──uses──► ILogger (ECAssistantLLM)
-- PromptCacheSessionManager ──uses──► ILogger (ECAssistantLLM)
 - RequestRouter ──implements──► IRequestRouter (ECAssistantLLM)
 - RequestRouter ──uses──► IClientManager (ECAssistantLLM)
 - RequestRouter ──uses──► IInferenceScheduler (ECAssistantLLM)

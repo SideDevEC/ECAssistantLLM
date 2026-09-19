@@ -37,12 +37,14 @@ public class VramBudgetTests
     }
 
     [Fact]
-    public void TryReserve_ExactlyToLimit_Succeeds_AndIsExceeded()
+    public void TryReserve_ExactlyToLimit_Succeeds_AndNotExceeded()
     {
         var budget = new VramBudget(ConfigWithBudget(1000));
         Assert.True(budget.TryReserve(1000));
         Assert.Equal(1000, budget.CurrentUsageMb);
-        Assert.True(budget.IsExceeded);
+        // Documented boundary semantics (VramBudget.IsExceeded): only STRICTLY over
+        // budget counts as exceeded — usage == budget is acceptable.
+        Assert.False(budget.IsExceeded);
     }
 
     [Fact]
