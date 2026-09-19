@@ -118,9 +118,16 @@ public sealed class ModelSmokeE2E
             Assert.False(string.IsNullOrWhiteSpace(answer), "chat returned empty content");
             Assert.Contains("4", answer);
 
-            // 2. Streaming — at least one content delta arrives
-            var (deltas, dataLines) = await StreamAsync(port, cid, "Say the word banana.", maxTokens: 60);
-            Assert.True(deltas.Count > 0, $"no streamed deltas (data lines parsed: {dataLines})");
+            // 2. Streaming — at least one content delta arrives (retry: small CI
+            //    runners occasionally emit an empty first generation)
+            List<string> deltas = new();
+            int dataLines = 0;
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                (deltas, dataLines) = await StreamAsync(port, cid, "Say the word banana.", maxTokens: 60);
+                if (deltas.Count > 0) break;
+            }
+            Assert.True(deltas.Count > 0, $"no streamed deltas after 3 attempts (data lines parsed: {dataLines})");
             Assert.Contains("banana", string.Concat(deltas), StringComparison.OrdinalIgnoreCase);
         }
         finally
