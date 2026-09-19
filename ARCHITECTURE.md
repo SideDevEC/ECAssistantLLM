@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-09-19 (v14.9.0 — Vulkan safety guard: DeltaNet-MoE models clamped to CPU on Vulkan (llama.cpp #26945); GGUF architecture reader; plus 14.8.x: process-backend parity, orphan-proofing, SSE determinism, 3-OS CI)
+**Updated:** 2026-09-19 (v14.9.3 — shutdown grace period: last-client disconnect starts a countdown (shutdown_grace_sec, default 60s), returning clients cancel it — reconnect cycles no longer kill the server; 14.9.2 per-model max_tokens + strict root confinement; 14.9.0 Vulkan DeltaNet-MoE guard; 14.8.x parity/orphan-proofing/SSE/CI)
 **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview

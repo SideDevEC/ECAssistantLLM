@@ -253,3 +253,19 @@ llama.cpp issue #26945, unfixed upstream as of 2026-09-19). At model load,
 
 Config `gpu_layers` is never rewritten; Metal/CUDA machines and dense models are
 unaffected. Remove this guard once upstream ships the fix.
+
+## v3 addendum note — shutdown grace period (14.9.3)
+
+**Problem:** `shutdown_on_last_client` fired instantly on the last disconnect — a
+client reconnect cycle (register → disconnect → register) killed the server, and
+the app's next chat request hit a dead server (404). Seen on fresh installs.
+
+**Fix:** `ClientManager.StartGraceCountdown` — the shutdown callback now waits
+`server.shutdown_grace_sec` (default **60**; 0 = legacy immediate). Any client
+registration during the window cancels the countdown and resets the fired-guard;
+expiry re-checks that clients are still gone before firing. Grace 0 keeps legacy
+behavior (ServerIdleShutdownTests unaffected).
+
+**Also (14.9.3):** `LlmHttpServer` suppresses `ObjectDisposedException` in the
+unhandled-error handler — a disposed-response race during shutdown was logging
+spurious "Cannot access a disposed object" errors.
