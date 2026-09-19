@@ -75,6 +75,16 @@ public sealed class LlmHttpServer : IDisposable
         using var runCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
         _listener.Start();
 
+        // HttpListener.GetContextAsync is not cancellable — without this registration the
+        // loop parks in the pending accept forever when only the token is cancelled, and
+        // the server survives its own shutdown until an unrelated request unblocks it
+        // (observed 2026-09-18/19: 21 h zombie with 854 shutdown re-attempts).
+        // Stopping the listener makes the pending GetContextAsync throw and the loop exit.
+        using var stopRegistration = runCts.Token.Register(() =>
+        {
+            try { _listener.Stop(); } catch { /* already stopped/disposed */ }
+        });
+
         _logger.Info("Server", $"ECAssistantLLM listening on {_config.Server.Prefix}");
         _logger.Info("Server", $"Models: {string.Join(", ", _modelHost.LoadedModelIds)}");
         _logger.Info("Server", $"Max sessions: {_config.Server.MaxSessions}");

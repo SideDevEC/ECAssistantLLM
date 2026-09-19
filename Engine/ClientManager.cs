@@ -19,6 +19,7 @@ public sealed class ClientManager : IClientManager, IDisposable
     private readonly bool _shutdownOnLastClient;
     private readonly Action? _onLastClientDisconnected;
     private int _everHadClients; // 0 = no clients ever registered, 1 = at least one has
+    private int _shutdownTriggered; // 0 = not yet, 1 = shutdown callback fired (guard against 90 s re-trigger spam)
 
     public ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger)
         : this(sessionRegistry, config, logger, onLastClientDisconnected: null)
@@ -131,8 +132,11 @@ public sealed class ClientManager : IClientManager, IDisposable
             }
         }
 
-        // Also check: all clients evicted, should we shut down?
-        if (_clients.IsEmpty && _shutdownOnLastClient && Interlocked.CompareExchange(ref _everHadClients, 0, 0) == 1)
+        // Also check: all clients evicted, should we shut down? Fire once — cts.Cancel()
+        // is idempotent, but re-invoking every eviction tick re-logged the shutdown and
+        // hid the (now fixed) stuck-shutdown bug behind 854 identical log lines.
+        if (_clients.IsEmpty && _shutdownOnLastClient && Interlocked.CompareExchange(ref _everHadClients, 0, 0) == 1
+            && Interlocked.Exchange(ref _shutdownTriggered, 1) == 0)
         {
             _logger.Info("ClientManager", "All clients evicted — triggering server shutdown");
             _onLastClientDisconnected?.Invoke();
