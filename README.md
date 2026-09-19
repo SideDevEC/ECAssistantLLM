@@ -189,4 +189,7 @@ LLamaSharp wraps [llama.cpp](https://github.com/ggerganov/llama.cpp), which is a
 
 This project is licensed under the [MIT License](LICENSE).
 
+Third-party components (Prism ML llama.cpp fork, Bonsai model weights, LLamaSharp) are
+covered by their own licenses — see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 Copyright (c) 2026 SideDevEC
