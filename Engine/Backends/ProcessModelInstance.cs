@@ -17,6 +17,7 @@ public sealed class ProcessModelInstance : IDisposable
     private readonly int _port;
     private Process? _process;
     private bool _disposed;
+    private readonly string? _pidFile;
 
     /// <summary>Base URL the child process serves on.</summary>
     public string BaseUrl { get; }
@@ -27,7 +28,7 @@ public sealed class ProcessModelInstance : IDisposable
     /// <summary>True while the child process is alive and has passed a health check.</summary>
     public bool IsHealthy { get; private set; }
 
-    public ProcessModelInstance(ModelConfig config, string serverBinaryPath, int port, ILogger logger)
+    public ProcessModelInstance(ModelConfig config, string serverBinaryPath, int port, ILogger logger, string? pidFilePath = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _binaryPath = string.IsNullOrWhiteSpace(serverBinaryPath)
@@ -35,6 +36,7 @@ public sealed class ProcessModelInstance : IDisposable
             : serverBinaryPath;
         _port = port > 0 ? port : throw new ArgumentException("Port must be positive", nameof(port));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _pidFile = pidFilePath;
         BaseUrl = $"http://127.0.0.1:{_port}";
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistantLLM/1.0");
@@ -69,14 +71,91 @@ public sealed class ProcessModelInstance : IDisposable
 
         await WaitForHealthyAsync(ct).ConfigureAwait(false);
         IsHealthy = true;
+        WritePidFile();
         _logger.Info("ProcessBackend", $"'{_config.Id}' healthy at {BaseUrl}");
+    }
+
+    /// <summary>
+    /// Cross-platform orphan record: pid + binary name. Written once the child is healthy,
+    /// deleted on graceful stop. A new server instance reaps orphans via ReapOrphan.
+    /// </summary>
+    private void WritePidFile()
+    {
+        if (_pidFile is null || _process is null) return;
+        try
+        {
+            var line = $"{_process.Id}\t{Path.GetFileNameWithoutExtension(_binaryPath)}";
+            File.WriteAllText(_pidFile, line);
+        }
+        catch (Exception ex) { _logger.Warn("ProcessBackend", $"[{_config.Id}] pid file write failed: {ex.Message}"); }
+    }
+
+    private void DeletePidFile()
+    {
+        if (_pidFile is null) return;
+        try { File.Delete(_pidFile); } catch { /* best effort */ }
+    }
+
+    /// <summary>
+    /// Kills an orphaned child left behind by a killed parent server, cross-platform.
+    /// Safety against PID reuse: the recorded binary name must match the running
+    /// process's name — a recycled PID belonging to anything else is left untouched.
+    /// </summary>
+    public static void ReapOrphan(string pidFile, ILogger logger)
+    {
+        if (!File.Exists(pidFile)) return;
+
+        string[] parts;
+        try { parts = File.ReadAllText(pidFile).Trim().Split('\t'); }
+        catch (Exception ex) { logger.Warn("ProcessBackend", $"pid file unreadable ({pidFile}): {ex.Message}"); return; }
+
+        if (parts.Length != 2 || !int.TryParse(parts[0], out var pid))
+        {
+            try { File.Delete(pidFile); } catch { }
+            return;
+        }
+
+        var recordedName = parts[1];
+        Process? proc;
+        try { proc = Process.GetProcessById(pid); }
+        catch { proc = null; } // already dead — stale file
+
+        if (proc is null || proc.HasExited)
+        {
+            try { File.Delete(pidFile); } catch { }
+            return;
+        }
+
+        if (!string.Equals(proc.ProcessName, recordedName, StringComparison.OrdinalIgnoreCase))
+        {
+            // PID was recycled by an unrelated process — never kill it.
+            logger.Warn("ProcessBackend", $"Orphan reap skipped: PID {pid} is '{proc.ProcessName}', not '{recordedName}'");
+            try { File.Delete(pidFile); } catch { }
+            return;
+        }
+
+        logger.Warn("ProcessBackend", $"Reaping orphaned child '{recordedName}' (pid {pid}) from a previous server instance");
+        try
+        {
+            proc.Kill(entireProcessTree: true);
+            if (!proc.WaitForExitAsync(CancellationToken.None).Wait(TimeSpan.FromSeconds(10)))
+                proc.Kill();
+        }
+        catch (Exception ex) { logger.Warn("ProcessBackend", $"Orphan reap failed for pid {pid}: {ex.Message}"); }
+        finally
+        {
+            try { File.Delete(pidFile); } catch { }
+        }
     }
 
     /// <summary>Stops the child process (graceful, then forced after 10s).</summary>
     public async Task StopAsync()
     {
         if (_process is null || _process.HasExited)
+        {
+            DeletePidFile();
             return;
+        }
 
         try
         {
@@ -88,6 +167,7 @@ public sealed class ProcessModelInstance : IDisposable
         finally
         {
             IsHealthy = false;
+            DeletePidFile();
             _logger.Info("ProcessBackend", $"'{_config.Id}' stopped");
         }
         await Task.CompletedTask;

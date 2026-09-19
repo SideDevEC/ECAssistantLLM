@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 113  |  LOC: 8116  |  ~4865 tokens
+Types: 114  |  LOC: 8306  |  ~4940 tokens
 
 ---
 
@@ -310,8 +310,13 @@ Cross-package deps: ECAssistant.LLM.Config
 > One externally-served model: owns a llama-server child process and its port.
 Implements: IDisposable
 Constructor:
-  - ProcessModelInstance(ModelConfig config, string serverBinaryPath, int port, ILogger logger)
+  - ProcessModelInstance(ModelConfig config, string serverBinaryPath, int port, ILogger logger, string? pidFilePath = null)
 Cross-package deps: ECAssistant.LLM.Config
+
+### Class: ProcessOrphanReapTests
+> Cross-platform orphan-proofing: PID files + safe reaping (binary-name guard so a
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Server, Xunit
 
 ### Class: ProcessSession
 > One client session on a Process-backend model (child llama-server).

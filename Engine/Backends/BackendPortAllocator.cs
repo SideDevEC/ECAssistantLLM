@@ -50,4 +50,25 @@ public sealed class BackendPortAllocator
         throw new InvalidOperationException(
             $"No free backend port available ({min}-{max}) — all {rangeSize} ports in use");
     }
+
+    /// <summary>
+    /// OS-level probe: true when the port can actually be bound on loopback right now.
+    /// Stateless utility — no mutable state. Used by ProcessModelHost to verify allocator
+    /// candidates against the real system (orphans/unrelated services are invisible to
+    /// the allocator's own used-set).
+    /// </summary>
+    internal static bool IsPortFree(int port)
+    {
+        try
+        {
+            var l = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+            l.Start();
+            l.Stop();
+            return true;
+        }
+        catch (System.Net.Sockets.SocketException)
+        {
+            return false;
+        }
+    }
 }

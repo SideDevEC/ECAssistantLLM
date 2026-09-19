@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 39  |  LOC: 3523  |  ~1810 tokens
+Types: 40  |  LOC: 3629  |  ~1878 tokens
 
 ---
 
@@ -97,6 +97,11 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 Constructor:
   - ModelsTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: ProcessOrphanReapTests
+> Cross-platform orphan-proofing: PID files + safe reaping (binary-name guard so a
+Implements: IDisposable
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Server, Xunit
 
 ### Class: ProcessSessionRegistryTests
 > Stub host — never starts a real child; url resolution fails fast.

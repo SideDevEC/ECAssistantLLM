@@ -104,7 +104,11 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
                     "Run the setup wizard — it installs everything ECAssistantLLM needs. " +
                     "The LLM server does not download runtimes at runtime.");
 
-            var instance = new ProcessModelInstance(config, binaryPath, AllocatePort(), _logger);
+            // Reap any orphan left by a killed parent server BEFORE spawning fresh.
+            var pidFile = Path.Combine(backendsRoot, $"{config.Id}.pid");
+            ProcessModelInstance.ReapOrphan(pidFile, _logger);
+
+            var instance = new ProcessModelInstance(config, binaryPath, AllocatePort(), _logger, pidFile);
             await instance.StartAsync(ct).ConfigureAwait(false);
 
             lock (_lock)
@@ -146,8 +150,18 @@ public sealed class ProcessModelHost : IProcessModelHost, IDisposable
             var used = _instances.Values
                 .Concat(_starting.Values.Where(t => t.IsCompletedSuccessfully).Select(t => t.Result))
                 .Select(i => int.Parse(i.BaseUrl.Split(':').Last()))
-                .ToList();
-            return _portAllocator.Allocate(used);
+                .ToHashSet();
+
+            // OS-verify before committing: the allocator only knows this server's own
+            // instances — orphaned children or unrelated services may still hold ports.
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                var candidate = _portAllocator.Allocate(used);
+                if (BackendPortAllocator.IsPortFree(candidate)) return candidate;
+                used.Add(candidate);
+                _logger.Warn("ProcessBackend", $"Port {candidate} unexpectedly busy — probing next");
+            }
+            throw new InvalidOperationException("No free backend port available (OS probe exhausted)");
         }
     }
 

@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-19T10:09:27.910368+00:00
-Packages: 2  |  Types: 152
+Generated: 2026-09-19T10:22:11.121014+00:00
+Packages: 2  |  Types: 154
 
 ---
 
-## ECAssistantLLM (113 types, ~8116 LOC)
+## ECAssistantLLM (114 types, ~8306 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -77,7 +77,8 @@ Packages: 2  |  Types: 152
 - 🟡 PrefillRequest  (ECAssistantLLM)
 - 🟡 PrefillResponse  (ECAssistantLLM)
 - 🟡 ProcessModelHost : IProcessModelHost, IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger, string, PlatformRuntimeCatalog? catalog =]
-- 🟡 ProcessModelInstance : IDisposable  (ECAssistantLLM)  deps: [ModelConfig, string, int, ILogger]
+- 🟡 ProcessModelInstance : IDisposable  (ECAssistantLLM)  deps: [ModelConfig, string, int, ILogger, string? pidFilePath =]
+- 🟡 ProcessOrphanReapTests : IDisposable  (ECAssistantLLM)
 - 🟡 ProcessSession : IDisposable  (ECAssistantLLM)  deps: [string, string, ModelConfig, IProcessModelHost, HttpClient, ILogger]
 - 🟡 ProcessSessionRegistry : IDisposable  (ECAssistantLLM)  deps: [IProcessModelHost, LlmServerConfig, ILogger, Func]
 - 🟡 ProcessSessionRegistryTests  (ECAssistantLLM)
@@ -121,7 +122,7 @@ Packages: 2  |  Types: 152
 - 🟡 VramBudget  (ECAssistantLLM)  deps: [LlmServerConfig]
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 
-## Tests (39 types, ~3523 LOC)
+## Tests (40 types, ~3629 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -141,6 +142,7 @@ Packages: 2  |  Types: 152
 - 🟡 ModelPathPolicyTests  (Tests)
 - 🟡 ModelPathRestrictionTests : IDisposable  (Tests)
 - 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ProcessOrphanReapTests : IDisposable  (Tests)
 - 🟡 ProcessSessionRegistryTests  (Tests)
 - 🟡 ProcessSessionStructuredTests  (Tests)
 - 🟡 ProcessStatelessClientTests  (Tests)
