@@ -62,7 +62,7 @@ public sealed class TestServerFixture : IAsyncLifetime
                }
 
              // ── Wire up the engine exactly like Program.cs does ──────────────
-          var logger = new ServerLogger(LogLevel.Warn,
+          var logger = new ServerLogger(LogLevel.Info,
               Path.Combine(AppContext.BaseDirectory, "ecassistant-llm-test.log"));
           logger.DisableConsole();
 
@@ -197,14 +197,33 @@ public sealed class TestServerFixture : IAsyncLifetime
 
          // ── Small HTTP helpers used across test categories ─────────────────────
 
-         private string? _openAiClientId;
+         private string? _autoClientId;
 
          /// <summary>
-         /// OpenAI-compatible endpoints now require a registered client ID.
-         /// Returns a lazily-registered, cached client id for /v1/* helper calls.
+         /// Returns a lazily-registered, cached client id for auto-authenticated
+         /// helper calls. Covers both /v1/* inference and /eca/* management endpoints
+         /// (registration POST /eca/clients and GET /eca/health are exempt).
          /// </summary>
-         private async Task<string> OpenAiClientIdAsync()
-              => _openAiClientId ??= await RegisterClientAsync("fixture-openai");
+         private async Task<string> AutoClientIdAsync()
+              => _autoClientId ??= await RegisterClientAsync("fixture-auto");
+
+         /// <summary>True when the path+method requires a registered X-Client-Id header.</summary>
+         private static bool NeedsAutoClientId(string path, string method)
+         {
+             if (path.StartsWith("/v1/")) return true;
+             if (path.StartsWith("/eca/"))
+             {
+                 // Registration, health, and shutdown are handled explicitly
+                 if (path == "/eca/health") return false;
+                 if (path == "/eca/clients" && method == "POST") return false;
+                 if (path == "/eca/shutdown") return false;
+                 // Path-scoped client operations (/eca/clients/{id}...) require the
+                 // header to match the path id — caller must pass clientId explicitly.
+                 if (path.StartsWith("/eca/clients/")) return false;
+                 return true;
+             }
+             return false;
+         }
 
          /// <summary>POST a JSON body to <paramref name="path"/> (/v1/* calls get a registered client header automatically).</summary>
       public async Task<HttpResponseMessage> PostJsonAsync(string path, object body)
@@ -214,8 +233,8 @@ public sealed class TestServerFixture : IAsyncLifetime
                  {
                   Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
                  };
-          if (path.StartsWith("/v1/"))
-              req.Headers.TryAddWithoutValidation("X-Client-Id", await OpenAiClientIdAsync());
+          if (NeedsAutoClientId(path, "POST"))
+              req.Headers.TryAddWithoutValidation("X-Client-Id", await AutoClientIdAsync());
           return await Client.SendAsync(req);
          }
 
@@ -239,10 +258,10 @@ public sealed class TestServerFixture : IAsyncLifetime
                  {
                   Content = new StringContent(rawBody, System.Text.Encoding.UTF8, contentType)
                  };
-          if (clientId != null)
+          if (clientId != null && clientId != "")
               req.Headers.TryAddWithoutValidation("X-Client-Id", clientId);
-          else if (path.StartsWith("/v1/"))
-              req.Headers.TryAddWithoutValidation("X-Client-Id", await OpenAiClientIdAsync());
+          else if (clientId == null && NeedsAutoClientId(path, "POST"))
+              req.Headers.TryAddWithoutValidation("X-Client-Id", await AutoClientIdAsync());
           return await Client.SendAsync(req);
          }
 
@@ -252,26 +271,30 @@ public sealed class TestServerFixture : IAsyncLifetime
           using var req = new HttpRequestMessage(HttpMethod.Get, path);
           if (clientId != null)
               req.Headers.TryAddWithoutValidation("X-Client-Id", clientId);
-          else if (path.StartsWith("/v1/"))
-              req.Headers.TryAddWithoutValidation("X-Client-Id", await OpenAiClientIdAsync());
+          else if (NeedsAutoClientId(path, "GET"))
+              req.Headers.TryAddWithoutValidation("X-Client-Id", await AutoClientIdAsync());
           return await Client.SendAsync(req);
          }
 
-         /// <summary>DELETE a path with an optional X-Client-Id header.</summary>
+         /// <summary>DELETE a path with an optional X-Client-Id header. Auto-registers for /eca/* management endpoints.</summary>
       public async Task<HttpResponseMessage> DeleteAsClientAsync(string path, string? clientId = null)
          {
           using var req = new HttpRequestMessage(HttpMethod.Delete, path);
           if (clientId != null)
               req.Headers.TryAddWithoutValidation("X-Client-Id", clientId);
+          else if (NeedsAutoClientId(path, "DELETE"))
+              req.Headers.TryAddWithoutValidation("X-Client-Id", await AutoClientIdAsync());
           return await Client.SendAsync(req);
          }
 
-         /// <summary>Send an arbitrary method to a path (used for wrong-method tests).</summary>
+         /// <summary>Send an arbitrary method to a path (used for wrong-method tests). Auto-registers for /v1/* and /eca/* management endpoints.</summary>
       public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, string? clientId = null)
          {
           using var req = new HttpRequestMessage(method, path);
           if (clientId != null)
               req.Headers.TryAddWithoutValidation("X-Client-Id", clientId);
+          else if (NeedsAutoClientId(path, method.Method))
+              req.Headers.TryAddWithoutValidation("X-Client-Id", await AutoClientIdAsync());
           return await Client.SendAsync(req);
          }
 

@@ -16,14 +16,12 @@ namespace ECAssistant.LLM.Tests.ModelManagement;
     public ModelLoadTests(TestServerFixture fixture) => _fixture = fixture;
 
     [Fact]
-    public async Task Unload_Unknown_Model_Returns_400_Or_404()
+    public async Task Unload_Unknown_Model_Returns_404()
     {
         using var resp = await _fixture.PostJsonAsync("/eca/models/unload",
             new { id = "nonexistent-model" });
 
-        Assert.True(resp.StatusCode == HttpStatusCode.BadRequest
-            || resp.StatusCode == HttpStatusCode.NotFound,
-            $"Expected 400 or 404, got {resp.StatusCode}");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
     [Fact]
@@ -42,6 +40,7 @@ namespace ECAssistant.LLM.Tests.ModelManagement;
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
+
 
     [Fact]
     public async Task Load_With_NonExistent_Path_Returns_Error()

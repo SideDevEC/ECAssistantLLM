@@ -189,6 +189,7 @@ public sealed class MultiModelHost : IDisposable
                 return false;
 
             slot.Unload();
+            _slots.Remove(modelId);
         }
         _logger.Info("MultiModelHost", $"Unloaded model '{modelId}' at runtime");
         return true;

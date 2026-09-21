@@ -20,6 +20,9 @@ namespace ECAssistant.LLM.Tests.Shutdown;
     [Fact]
     public async Task Shutdown_Endpoint_Returns_200()
     {
+        // Keep the shared server alive — register a second client so the shutdown
+        // endpoint doesn't wind down the server (ClientCount reaches 0 after disconnect).
+        var keepAlive = await _fixture.RegisterClientAsync("shutdown-keepalive");
         var clientId = await _fixture.RegisterClientAsync("shutdown-test");
 
         using var resp = await _fixture.PostJsonAsClientAsync("/eca/shutdown", new { }, clientId);
@@ -34,11 +37,12 @@ namespace ECAssistant.LLM.Tests.Shutdown;
     [Fact]
     public async Task Shutdown_Disconnects_Calling_Client()
     {
+        var keepAlive = await _fixture.RegisterClientAsync("shutdown-keepalive-2");
         var clientId = await _fixture.RegisterClientAsync("shutdown-disconnect");
 
         // Verify client exists via heartbeat
         var hbBefore = await _fixture.PostJsonAsClientAsync(
-            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, "default");
+            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, clientId);
         Assert.Equal(HttpStatusCode.OK, hbBefore.StatusCode);
         hbBefore.Dispose();
 
@@ -46,18 +50,18 @@ namespace ECAssistant.LLM.Tests.Shutdown;
         using var resp = await _fixture.PostJsonAsClientAsync("/eca/shutdown", new { }, clientId);
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
-        // Client should now be disconnected — heartbeat should return 404
+        // Client should now be disconnected — heartbeat returns 401 (client no longer registered)
         using var hbAfter = await _fixture.PostJsonAsClientAsync(
-            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, "default");
-        Assert.Equal(HttpStatusCode.NotFound, hbAfter.StatusCode);
+            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, clientId);
+        Assert.Equal(HttpStatusCode.Unauthorized, hbAfter.StatusCode);
     }
 
     [Fact]
-    public async Task Shutdown_With_No_Client_Header_Still_Works()
+    public async Task Shutdown_With_No_Client_Header_Returns_401()
     {
-        using var resp = await _fixture.PostJsonAsync("/eca/shutdown", new { });
+        // No registered X-Client-Id — /eca/shutdown requires authentication.
+        using var resp = await _fixture.PostRawAsync("/eca/shutdown", "{}");
 
-        // Server defaults to "default" client — disconnects it
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 }

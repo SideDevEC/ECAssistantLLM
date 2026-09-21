@@ -71,7 +71,7 @@ namespace ECAssistant.LLM.Tests.Clients;
         var clientId = await _fixture.RegisterClientAsync("heartbeat-client");
 
         using var resp = await _fixture.PostJsonAsClientAsync(
-             $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 1 }, "default");
+             $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 1 }, clientId);
 
         Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
         var body = await resp.Content.ReadAsStringAsync();
@@ -80,17 +80,15 @@ namespace ECAssistant.LLM.Tests.Clients;
     }
 
     [Fact]
-    public async Task Heartbeat_With_Unknown_Client_Returns_404()
+    public async Task Heartbeat_With_Unknown_Client_Returns_403()
     {
+        // Security: a valid client cannot operate on another client's id → 403 Forbidden.
+        var validHeader = await _fixture.RegisterClientAsync("hb-unknown-header");
         using var resp = await _fixture.PostJsonAsClientAsync(
              "/eca/clients/00000000000000000000000000000000/heartbeat",
-             new { active_sessions = 0 }, "default");
+             new { active_sessions = 0 }, validHeader);
 
-        Assert.Equal(System.Net.HttpStatusCode.NotFound, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(body);
-        Assert.Equal("client_not_found",
-            doc.RootElement.GetProperty("error").GetProperty("type").GetString());
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, resp.StatusCode);
     }
 
     [Fact]
@@ -98,7 +96,7 @@ namespace ECAssistant.LLM.Tests.Clients;
     {
         var clientId = await _fixture.RegisterClientAsync("to-be-removed");
 
-        using var resp = await _fixture.DeleteAsClientAsync($"/eca/clients/{clientId}");
+        using var resp = await _fixture.DeleteAsClientAsync($"/eca/clients/{clientId}", clientId);
 
         Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
         var body = await resp.Content.ReadAsStringAsync();
@@ -107,16 +105,14 @@ namespace ECAssistant.LLM.Tests.Clients;
     }
 
     [Fact]
-    public async Task Delete_With_Unknown_Client_Returns_404()
+    public async Task Delete_With_Unknown_Client_Returns_403()
     {
+        // Security: a valid client cannot delete another client's id → 403 Forbidden.
+        var validHeader = await _fixture.RegisterClientAsync("del-unknown-header");
         using var resp = await _fixture.DeleteAsClientAsync(
-             "/eca/clients/00000000000000000000000000000001");
+             "/eca/clients/00000000000000000000000000000001", validHeader);
 
-        Assert.Equal(System.Net.HttpStatusCode.NotFound, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(body);
-        Assert.Equal("client_not_found",
-            doc.RootElement.GetProperty("error").GetProperty("type").GetString());
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, resp.StatusCode);
     }
 
     [Fact]

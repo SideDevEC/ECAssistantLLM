@@ -6,5 +6,5 @@ namespace ECAssistant.LLM;
 /// </summary>
 public static class LlmServerInfo
 {
-    public const string Version = "1.0.0";
+        public const string Version = "14.9.5";
 }

@@ -59,21 +59,14 @@ namespace ECAssistant.LLM.Tests.Sessions;
     }
 
     [Fact]
-    public async Task CreateSession_Without_Client_Header_Defaults_To_Default_Client()
+    public async Task CreateSession_Without_Client_Header_Returns_401()
     {
-        // Server defaults X-Client-Id to "default" when header is missing.
+        // Server requires a registered X-Client-Id - no default anymore.
         var sessionId = "no-header-" + Guid.NewGuid().ToString("N")[..8];
-        using var resp = await _fixture.PostJsonAsync("/eca/sessions",
-             new { session_id = sessionId });
+        using var resp = await _fixture.PostRawAsync("/eca/sessions",
+             "{\"session_id\":\"" + sessionId + "\"}", clientId: "");
 
-        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(body);
-        Assert.Equal(sessionId, doc.RootElement.GetProperty("session_id").GetString());
-        Assert.Equal("default", doc.RootElement.GetProperty("client_id").GetString());
-
-        // Cleanup
-        await _fixture.DeleteAsClientAsync($"/eca/sessions/{sessionId}", "default");
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
     [Fact]

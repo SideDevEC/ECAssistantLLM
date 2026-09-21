@@ -97,8 +97,8 @@ public sealed class LlmServerConfig
                 Port = 8420,
                 MaxSessions = 8,
                 MaxVramMb = null,
-                ShutdownOnLastClient = true,
-                ShutdownGraceSec = 60,
+                ShutdownOnLastClient = false,
+                ShutdownGraceSec = 0,
                 HeartbeatTimeoutSec = 90,
                 HeartbeatIntervalSec = 30
             },

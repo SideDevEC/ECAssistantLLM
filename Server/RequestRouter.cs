@@ -886,11 +886,17 @@ public sealed class RequestRouter : IRequestRouter
 
         try
         {
+            // Model id may be absent (legacy clients send only session_id). Resolve the
+            // default (main) model so process-backend mains still get a process session —
+            // the in-process registry cannot serve them (no slot) and would 400, leaving
+            // every later prefill/chat to 404 with session_not_found.
+            var requestedModelId = string.IsNullOrWhiteSpace(req.ModelId)
+                ? _models.MainModelId
+                : req.ModelId;
+
             // Process-backend models get transcript-backed sessions in their own registry
             // (no VramBudget — KV lives in the child process), identical response shape.
-            var processModelCfg = req.ModelId != null
-                ? _config.Models.FirstOrDefault(m => m.Id.Equals(req.ModelId, StringComparison.OrdinalIgnoreCase) && IsProcessModel(m.Id))
-                : null;
+            var processModelCfg = _config.Models.FirstOrDefault(m => m.Id.Equals(requestedModelId, StringComparison.OrdinalIgnoreCase) && IsProcessModel(m.Id));
             if (processModelCfg != null)
             {
                 if (_processSessions == null)
@@ -1183,7 +1189,11 @@ public sealed class RequestRouter : IRequestRouter
         };
 
         var ok = await _models.TryLoadModelAsync(modelConfig);
-        await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Ok = ok, Message = ok ? "Loaded" : "Failed to load" });
+        if (ok)
+            await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Ok = true, Message = "Loaded" });
+        else
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Failed to load model — check path and model file", Type = "model_error" } }, 400);
     }
 
     private async Task HandleUnloadModelAsync(HttpListenerContext ctx)
@@ -1197,7 +1207,11 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         var ok = _models.TryUnloadModel(modelId);
-        await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Ok = ok, Message = ok ? "Unloaded" : "Not found" });
+        if (ok)
+            await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Ok = true, Message = "Unloaded" });
+        else
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = $"Model not found: {modelId}", Type = "model_error" } }, 404);
     }
 
     private async Task HandleTokenizeAsync(HttpListenerContext ctx, string? clientId)

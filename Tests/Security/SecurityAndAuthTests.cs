@@ -264,11 +264,14 @@ public class ModelPathRestrictionTests : IDisposable
         var resp = await h.PostJsonAsync("/eca/models/load",
             new { id = "m1", path = inside }, clientId);
 
-        // The 403 wall is passed; the load itself fails because the file doesn't exist
+        // The 403 wall is passed; the load itself fails because the file doesn't exist.
+        // Server returns 400 with an error body (not 200 with ok=false).
         Assert.NotEqual(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.NotEqual(HttpStatusCode.OK, resp.StatusCode);
         var json = await resp.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
-        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("model_error",
+            doc.RootElement.GetProperty("error").GetProperty("type").GetString());
     }
 
     [Fact]

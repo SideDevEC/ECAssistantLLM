@@ -27,20 +27,16 @@ public sealed class ServerSection
     public int? MaxVramMb { get; set; }
 
     /// <summary>
-    /// If true, server shuts down when the last client disconnects.
-    /// Default: true — server winds down on last client exit.
+    /// DEPRECATED / IGNORED: the server never shuts down on last-client disconnect
+    /// anymore — it stays alive with the model in memory until an explicit
+    /// /eca/shutdown request. Kept only so old llm-server.json files parse.
     /// </summary>
     [JsonPropertyName("shutdown_on_last_client")]
-    public bool ShutdownOnLastClient { get; set; } = true;
+    public bool ShutdownOnLastClient { get; set; } = false;
 
-    /// <summary>
-    /// Grace period (seconds) before the shutdown triggered by the last client
-    /// disconnect actually fires. Protects against client reconnect cycles — a client
-    /// that returns within the window cancels the shutdown. 0 = shut down immediately.
-    /// Default: 60.
-    /// </summary>
+    /// <summary>DEPRECATED / IGNORED — see ShutdownOnLastClient.</summary>
     [JsonPropertyName("shutdown_grace_sec")]
-    public int ShutdownGraceSec { get; set; } = 60;
+    public int ShutdownGraceSec { get; set; } = 0;
 
     [JsonPropertyName("heartbeat_timeout_sec")]
     public int HeartbeatTimeoutSec { get; set; } = 90;

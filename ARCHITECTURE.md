@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-09-19 (v14.9.3 — shutdown grace period: last-client disconnect starts a countdown (shutdown_grace_sec, default 60s), returning clients cancel it — reconnect cycles no longer kill the server; 14.9.2 per-model max_tokens + strict root confinement; 14.9.0 Vulkan DeltaNet-MoE guard; 14.8.x parity/orphan-proofing/SSE/CI)
+**Updated:** 2026-09-21 (v14.9.5 — always-alive server: all auto-shutdown/grace logic removed, server stays in memory until explicit /eca/shutdown; process-backend session create now resolves default model when model_id absent; model load/unload returns proper HTTP 400/404; TryUnloadModel removes slot from registry; 233/233 tests green)
 **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview

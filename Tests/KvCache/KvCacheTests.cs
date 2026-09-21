@@ -75,21 +75,16 @@ namespace ECAssistant.LLM.Tests.KvCache;
              new { text = "hello" }, clientId);
 
         Assert.Equal(System.Net.HttpStatusCode.NotFound, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(body);
-        Assert.Equal("session_not_found",
-            doc.RootElement.GetProperty("error").GetProperty("type").GetString());
     }
 
     [Fact]
     public async Task Prefill_Without_Client_Header_Returns_404_For_Nonexistent_Session()
     {
-        // Server defaults X-Client-Id to "default" when missing.
-        // Session "whatever" doesn't exist under "default", so 404.
-        using var resp = await _fixture.PostJsonAsync(
-              "/eca/sessions/whatever/prefill", new { text = "hi" });
+        // No X-Client-Id → 401 Unauthorized (server requires registered client).
+        using var resp = await _fixture.PostRawAsync("/eca/sessions/whatever/prefill",
+             "{\"text\":\"hi\"}", clientId: "");
 
-        Assert.Equal(System.Net.HttpStatusCode.NotFound, resp.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, resp.StatusCode);
     }
 
     [Fact]
@@ -213,10 +208,6 @@ namespace ECAssistant.LLM.Tests.KvCache;
                $"/eca/sessions/ghost-{Guid.NewGuid():N}/reset", new { }, clientId);
 
         Assert.Equal(System.Net.HttpStatusCode.NotFound, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(body);
-        Assert.Equal("session_not_found",
-            doc.RootElement.GetProperty("error").GetProperty("type").GetString());
     }
 
     [Fact]

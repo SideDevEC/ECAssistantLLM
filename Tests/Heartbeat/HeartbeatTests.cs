@@ -28,7 +28,7 @@ namespace ECAssistant.LLM.Tests.Heartbeat;
         for (int i = 0; i < 3; i++)
         {
             using var resp = await _fixture.PostJsonAsClientAsync(
-                $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 1 }, "default");
+                $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 1 }, clientId);
             Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
             var body = await resp.Content.ReadAsStringAsync();
@@ -46,7 +46,7 @@ namespace ECAssistant.LLM.Tests.Heartbeat;
         {
             using var resp = await _fixture.PostJsonAsClientAsync(
                 $"/eca/clients/{clientId}/heartbeat",
-                new { active_sessions = 1 }, "default");
+                new { active_sessions = 1 }, clientId);
 
             Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         }
@@ -57,13 +57,15 @@ namespace ECAssistant.LLM.Tests.Heartbeat;
     }
 
     [Fact]
-    public async Task Heartbeat_Unknown_Client_Returns_404()
+    public async Task Heartbeat_Unknown_Client_Returns_403()
     {
+        // Security: a valid client cannot heartbeat another client's id → 403 Forbidden.
+        var validHeader = await _fixture.RegisterClientAsync("hb-valid-header");
         using var resp = await _fixture.PostJsonAsClientAsync(
             "/eca/clients/00000000000000000000000000000000/heartbeat",
-            new { active_sessions = 0 }, "default");
+            new { active_sessions = 0 }, validHeader);
 
-        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
     }
 
     [Fact]
@@ -73,16 +75,16 @@ namespace ECAssistant.LLM.Tests.Heartbeat;
 
         // Verify heartbeat works
         using var hbBefore = await _fixture.PostJsonAsClientAsync(
-            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, "default");
+            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, clientId);
         Assert.Equal(HttpStatusCode.OK, hbBefore.StatusCode);
 
         // Delete client
-        using var del = await _fixture.DeleteAsClientAsync($"/eca/clients/{clientId}");
+        using var del = await _fixture.DeleteAsClientAsync($"/eca/clients/{clientId}", clientId);
         Assert.Equal(HttpStatusCode.OK, del.StatusCode);
 
-        // Heartbeat should now 404
+        // Heartbeat should now 401 (client no longer registered)
         using var hbAfter = await _fixture.PostJsonAsClientAsync(
-            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, "default");
-        Assert.Equal(HttpStatusCode.NotFound, hbAfter.StatusCode);
+            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, clientId);
+        Assert.Equal(HttpStatusCode.Unauthorized, hbAfter.StatusCode);
     }
 }

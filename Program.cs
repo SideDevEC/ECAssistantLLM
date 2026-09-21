@@ -99,7 +99,7 @@ if (portOverride.HasValue)
 
 logger.Info("Main", $"Server: {config.Server.Host}:{config.Server.Port}");
 logger.Info("Main", $"Models configured: {config.Models.Count}");
-logger.Info("Main", $"Shutdown on last client: {config.Server.ShutdownOnLastClient}");
+logger.Info("Main", "Server stays alive until explicit /eca/shutdown (no auto-shutdown)");
 
 // ── Resolve model paths relative to root directory ──
 // ROOT-ONLY contract (v12.11): relative paths resolve ONLY as {rootDir}/{path} or
