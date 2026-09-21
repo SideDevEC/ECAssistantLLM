@@ -66,7 +66,7 @@ public static class StructuredDecoder
     /// proper escapes so the document becomes parseable. Characters outside
     /// strings are left untouched (already invalid JSON — parsing will reject).
     /// </summary>
-    private static string EscapeUnescapedControlChars(string raw)
+    internal static string EscapeUnescapedControlChars(string raw)
     {
         bool inString = false;
         bool escaped = false;

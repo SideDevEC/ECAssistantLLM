@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture
 
-**Updated:** 2026-09-21 (v14.9.5 — always-alive server: all auto-shutdown/grace logic removed, server stays in memory until explicit /eca/shutdown; process-backend session create now resolves default model when model_id absent; model load/unload returns proper HTTP 400/404; TryUnloadModel removes slot from registry; 233/233 tests green)
+**Updated:** 2026-09-21 (late PM v14.9.6-wip — VERIFIED END-TO-END: live qwen35-4b grammar-forced tool_call (ECodeEditor create, enum+required enforced, typed tool_calls response, early-stop 989ms); JsonSchemaGrammarConverter rewritten two-phase (defs collected post-order, then emitted — kills emission interleaving); required props MANDATORY in grammar, optional tail; enum/key literals llama.cpp-style "\"...\""; — native OpenAI `tools` support on /v1/chat/completions: ChatCompletionRequest gains `tools`+`tool_choice`; new JsonSchemaGrammarConverter (json-schema → GBNF subset: string/enum, integer, number, boolean, object w/ required-first ordering, array) + ToolCallGrammarFactory (OpenAI tool_calls wire shape, per-tool name/args alternation) + ToolCallDecoder (parse + required-props validation); grammar-injected on in-process and process-stateless backends; response returns typed message.tool_calls with finish_reason="tool_calls"; health capability "openai-tools". ECA extensions (sessions, KV cache, structured envelope, tokenizer, embeddings, vision, lifecycle) fully untouched)
 **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
 
 ## Overview

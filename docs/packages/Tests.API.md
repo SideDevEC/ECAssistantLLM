@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 45  |  LOC: 4070  |  ~2131 tokens
+Types: 47  |  LOC: 4196  |  ~2202 tokens
 
 ---
 
@@ -30,8 +30,8 @@ Constructor:
   - ClientManagementTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
-### Class: ClientManagerGraceTests
-> ClientManager shutdown grace: last-client disconnect starts a countdown; a client
+### Class: ClientManagerAlwaysAliveTests
+> Always-alive contract: the server NEVER self-shuts down. Last-client disconnect
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, Xunit
 
 ### Class: ConcurrentRequestTests
@@ -59,6 +59,9 @@ Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
 ### Class: GpuLayerGuardTests
 > GpuLayerGuard decision table: only Vulkan + DeltaNet-MoE + configured layers clamps.
 Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
+
+### Class: GrammarProbeTests
+Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
 
 ### Class: HealthTests
 > Tests for GET /eca/health.
@@ -113,6 +116,10 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 Constructor:
   - ModelsTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: NativeToolsTests
+> Tests for native OpenAI tools support: schema → GBNF conversion, tool-call
+Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
 
 ### Class: ProcessOrphanReapTests
 > Cross-platform orphan-proofing: PID files + safe reaping (binary-name guard so a

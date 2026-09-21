@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-19T16:04:07.939138+00:00
-Packages: 2  |  Types: 169
+Generated: 2026-09-21T22:03:46.346729+00:00
+Packages: 2  |  Types: 182
 
 ---
 
-## ECAssistantLLM (124 types, ~9004 LOC)
+## ECAssistantLLM (135 types, ~9523 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -28,8 +28,8 @@ Packages: 2  |  Types: 169
 - 🟡 ClientAuthTests  (ECAssistantLLM)
 - 🟣 ClientInfo  (ECAssistantLLM)  deps: [string, string, string, DateTime, DateTime, int]
 - 🟡 ClientManagementTests  (ECAssistantLLM)  deps: [TestServerFixture]
-- 🟡 ClientManager : IClientManager, IDisposable  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action, SessionRegistry, LlmServerConfig, ILogger, Action, ProcessSessionRegistry]
-- 🟡 ClientManagerGraceTests  (ECAssistantLLM)
+- 🟡 ClientManager : IClientManager, IDisposable  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action? onLastClientDisconnected =, ProcessSessionRegistry? processSessionRegistry =]
+- 🟡 ClientManagerAlwaysAliveTests  (ECAssistantLLM)
 - 🟡 ClientRegisterRequest  (ECAssistantLLM)
 - 🟡 ClientRegisterResponse  (ECAssistantLLM)
 - 🟡 CompletionChoice  (ECAssistantLLM)
@@ -54,6 +54,7 @@ Packages: 2  |  Types: 169
 - 🟣 GpuLayerDecision  (ECAssistantLLM)  deps: [int, bool, string]
 - 🟡 GpuLayerGuard  (ECAssistantLLM)
 - 🟡 GpuLayerGuardTests  (ECAssistantLLM)
+- 🟡 GrammarProbeTests  (ECAssistantLLM)
 - 🟡 HealthTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 HeartbeatRequest  (ECAssistantLLM)
 - 🟡 HeartbeatResponse  (ECAssistantLLM)
@@ -61,6 +62,8 @@ Packages: 2  |  Types: 169
 - 🟡 InferenceDefaults  (ECAssistantLLM)
 - 🟡 InferenceScheduler : IInferenceScheduler  (ECAssistantLLM)  deps: [ILogger]
 - 🟡 InvalidDecisionException : Exception  (ECAssistantLLM)  deps: [string]
+- 🟡 InvalidToolCallException : Exception  (ECAssistantLLM)  deps: [string]
+- 🟡 JsonSchemaGrammarConverter  (ECAssistantLLM)
 - 🟡 KvCacheTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =, IProcessModelHost? processModelHost =, ProcessSessionRegistry? processSessionRegistry =]
 - 🟡 LlmServerConfig  (ECAssistantLLM)
@@ -79,6 +82,9 @@ Packages: 2  |  Types: 169
 - 🟡 ModelsTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 MtmdMarkerResolver  (ECAssistantLLM)
 - 🟡 MultiModelHost : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, ILogger, string, BackendSelector? backendSelector =]
+- 🟡 NativeToolsTests  (ECAssistantLLM)
+- 🟡 OpenAiFunctionSpec  (ECAssistantLLM)
+- 🟡 OpenAiToolSpec  (ECAssistantLLM)
 - 🟡 PlatformDetector  (ECAssistantLLM)
 - 🟡 PlatformRuntimeCatalog  (ECAssistantLLM)
 - 🟡 PrefillRequest  (ECAssistantLLM)
@@ -125,6 +131,11 @@ Packages: 2  |  Types: 169
 - 🟡 TokenizeRequest  (ECAssistantLLM)
 - 🟡 TokenizeResponse  (ECAssistantLLM)
 - 🟡 TokenizeTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟣 ToolCall  (ECAssistantLLM)  deps: [string, string]
+- 🟡 ToolCallDecoder  (ECAssistantLLM)
+- 🟣 ToolCallGeneration  (ECAssistantLLM)  deps: [IReadOnlyList]
+- 🟡 ToolCallGrammarFactory  (ECAssistantLLM)
+- 🟡 UniqueRuleNames  (ECAssistantLLM)
 - 🟣 VisionImage  (ECAssistantLLM)  deps: [string, byte]
 - 🟡 VisionImageSuiteE2ETests : IAsyncLifetime  (ECAssistantLLM)
 - 🟡 VisionInferenceE2ETests  (ECAssistantLLM)
@@ -132,7 +143,7 @@ Packages: 2  |  Types: 169
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (45 types, ~4070 LOC)
+## Tests (47 types, ~4196 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -140,12 +151,13 @@ Packages: 2  |  Types: 169
 - 🟡 ChatMessageContentConverterTests  (Tests)
 - 🟡 ClientAuthTests  (Tests)
 - 🟡 ClientManagementTests  (Tests)  deps: [TestServerFixture]
-- 🟡 ClientManagerGraceTests  (Tests)
+- 🟡 ClientManagerAlwaysAliveTests  (Tests)
 - 🟡 ConcurrentRequestTests  (Tests)  deps: [TestServerFixture]
 - 🟡 EmbeddingsTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ErrorHandlingTests  (Tests)  deps: [TestServerFixture]
 - 🟡 GgufArchitectureReaderTests  (Tests)
 - 🟡 GpuLayerGuardTests  (Tests)
+- 🟡 GrammarProbeTests  (Tests)
 - 🟡 HealthTests  (Tests)  deps: [TestServerFixture]
 - 🟡 HeartbeatTests  (Tests)  deps: [TestServerFixture]
 - 🟡 KvCacheTests  (Tests)  deps: [TestServerFixture]
@@ -156,6 +168,7 @@ Packages: 2  |  Types: 169
 - 🟡 ModelPathRestrictionTests : IDisposable  (Tests)
 - 🟡 ModelSmokeE2E  (Tests)
 - 🟡 ModelsTests  (Tests)  deps: [TestServerFixture]
+- 🟡 NativeToolsTests  (Tests)
 - 🟡 ProcessOrphanReapTests : IDisposable  (Tests)
 - 🟡 ProcessSessionRegistryTests  (Tests)
 - 🟡 ProcessSessionStructuredTests  (Tests)

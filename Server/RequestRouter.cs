@@ -241,7 +241,7 @@ public sealed class RequestRouter : IRequestRouter
         // v14.8.4: 100% parity — stateless process requests no longer raw-proxy; they run
         // through the same code shapes as in-process stateless (ThinkFilter, same response
         // objects, structured support). Only unhandled paths keep raw 1:1 passthrough.
-        if (req.SessionId == null && !req.Structured)
+        if (req.SessionId == null && !req.Structured && !req.ToolsActive)
         {
             if (_processStateless == null)
             {
@@ -302,6 +302,52 @@ public sealed class RequestRouter : IRequestRouter
         // Chat is fully handled above for every stateless/session × structured/plain
         // combination — the raw 1:1 proxy is intentionally unreachable here (was the
         // pre-parity escape hatch that silently bypassed ThinkFilter + structured mode).
+
+        // Native OpenAI tools mode (process backend): stateless only — the child
+        // receives the grammar alongside the messages, output is decoded and returned
+        // as typed message.tool_calls. Session+tools and stream+tools are rejected.
+        if (req.ToolsActive)
+        {
+            if (req.Messages.Count == 0)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "messages is required", Type = "invalid_request" } }, 400);
+                return;
+            }
+            if (req.Stream || req.SessionId != null)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "tools are supported on stateless non-streaming process requests only", Type = "invalid_request" } }, 400);
+                return;
+            }
+            if (_processStateless == null)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
+                return;
+            }
+
+            var tools = req.Tools!.Where(t => t.IsValid).ToList();
+            var toolsGrammar = ToolCallGrammarFactory.Build(tools);
+            var maxTokens = Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
+            var toolsSb = new StringBuilder();
+            await foreach (var token in ThinkFilter.ApplyAsync(
+                _processStateless.InferStatelessAsync(req.Model, req.Messages, req, grammar: toolsGrammar, maxTokens, ct), ct))
+                toolsSb.Append(token);
+
+            try
+            {
+                var calls = ToolCallDecoder.Decode(toolsSb.ToString(), tools);
+                await WriteToolCallsResponseAsync(ctx.Response, req.Model, calls);
+            }
+            catch (InvalidToolCallException ex)
+            {
+                _logger.Warn("Router", $"[Tools/process] decode failed: {ex.Message}");
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = $"Invalid tool_calls output: {ex.Message}", Type = "invalid_tool_calls" } }, 422);
+            }
+            return;
+        }
 
         // Structured mode — grammar-constrained decision envelope via the child's native
         // GBNF support (grammar + enable_thinking=false). Envelope early-stop mirrors the
@@ -481,6 +527,13 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         await using var slot = await _scheduler.AcquireAsync(ct);
+
+        // Native OpenAI tools mode: grammar-forced tool_calls generation, typed response.
+        if (req.ToolsActive)
+        {
+            await HandleNativeToolsChatAsync(ctx, req, session, templateSlot, prompt, images, ct);
+            return;
+        }
 
         // v13 structured mode: grammar-forced decision envelope, parsed server-side.
         // Always non-streamed — the client gets one JSON document with the decision.
@@ -777,7 +830,7 @@ public sealed class RequestRouter : IRequestRouter
             clients = _clients.ClientCount,
             vision = _models.LoadedModelIds.Select(id => _models.TryGetSlot(id)).Any(s => s?.SupportsVision == true),
             // v13c capability advertisement — clients negotiate features at connect.
-            capabilities = new[] { "eca-extensions", "structured-decoding" },
+            capabilities = new[] { "eca-extensions", "structured-decoding", "openai-tools" },
             uptime_sec = (int)(DateTime.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalSeconds
         };
         await SseStreamer.WriteJsonAsync(ctx.Response, response);
@@ -1515,6 +1568,108 @@ public sealed class RequestRouter : IRequestRouter
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// Native OpenAI tools mode (in-process backend): grammar-forced tool_calls
+    /// generation decoded into a typed message.tool_calls response.
+    /// </summary>
+    private async Task HandleNativeToolsChatAsync(
+        HttpListenerContext ctx, ChatCompletionRequest req,
+        SessionContext? session, ModelSlot templateSlot, string prompt, List<byte[]> images, CancellationToken ct)
+    {
+        var tools = req.Tools!.Where(t => t.IsValid).ToList();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sb = new StringBuilder();
+        var earlyStop = false;
+        var toolsParams = CreateToolsInferenceParams(req);
+        if (session != null)
+        {
+            await foreach (var token in session.InferAsync(prompt, toolsParams, ct, images))
+            {
+                sb.Append(token);
+                if (TryParseCompleteJson(sb.ToString())) { earlyStop = true; break; }
+            }
+        }
+        else
+        {
+            await foreach (var token in CreateStatelessStream(templateSlot, prompt, toolsParams, images, ct))
+            {
+                sb.Append(token);
+                if (TryParseCompleteJson(sb.ToString())) { earlyStop = true; break; }
+            }
+        }
+
+        sw.Stop();
+        _logger.Info("Router", $"[Tools] generated {sb.Length} chars (earlyStop={earlyStop}) in {sw.ElapsedMilliseconds} ms");
+        try
+        {
+            var calls = ToolCallDecoder.Decode(sb.ToString(), tools);
+            await WriteToolCallsResponseAsync(ctx.Response, req.Model, calls);
+        }
+        catch (InvalidToolCallException ex)
+        {
+            _logger.Warn("Router", $"Tool-call decode failed: {ex.Message} | raw: {sb.ToString()[..Math.Min(sb.Length, 300)]}");
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = $"Invalid tool_calls output: {ex.Message}", Type = "invalid_tool_calls" } }, 422);
+        }
+    }
+
+    /// <summary>Writes an OpenAI chat.completion response with typed tool_calls
+    /// (arguments serialized as a JSON string per the wire format), finish_reason="tool_calls".</summary>
+    private static async Task WriteToolCallsResponseAsync(HttpListenerResponse response, string model, IReadOnlyList<ToolCall> calls)
+    {
+        var toolCalls = calls.Select(c => new
+        {
+            id = $"call_{Guid.NewGuid():N}",
+            type = "function",
+            function = new { name = c.Name, arguments = c.ArgumentsJson },
+        }).ToArray();
+        var responseObj = new
+        {
+            id = Guid.NewGuid().ToString("N"),
+            @object = "chat.completion",
+            created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            model,
+            choices = new[]
+            {
+                new
+                {
+                    index = 0,
+                    message = new { role = "assistant", content = (string?)null, tool_calls = toolCalls },
+                    finish_reason = "tool_calls"
+                }
+            }
+        };
+        await SseStreamer.WriteJsonAsync(response, responseObj);
+    }
+
+    /// <summary>Early-stop check: true when the accumulated output parses as a complete
+    /// JSON document (the grammar does not stop LLamaSharp's token loop by itself).</summary>
+    private static bool TryParseCompleteJson(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        try { using var _ = System.Text.Json.JsonDocument.Parse(s); return true; }
+        catch (System.Text.Json.JsonException) { return false; }
+    }
+
+    /// <summary>Inference params with the tool-call grammar injected at the sampler.</summary>
+    private static LLama.Common.InferenceParams CreateToolsInferenceParams(ChatCompletionRequest req)
+    {
+        var grammar = ToolCallGrammarFactory.Build(req.Tools!);
+        var pipe = new LLama.Sampling.DefaultSamplingPipeline
+        {
+            Temperature = req.Temperature ?? 0.3f,
+            TopP = req.TopP ?? 0.95f,
+            TopK = req.TopK ?? 40,
+            RepeatPenalty = req.RepeatPenalty ?? 1.1f,
+            Grammar = new LLama.Sampling.Grammar(grammar, ToolCallGrammarFactory.Root),
+        };
+        return new LLama.Common.InferenceParams
+        {
+            MaxTokens = Math.Clamp(req.MaxTokens ?? 1024, 1, MaxInferenceTokens),
+            SamplingPipeline = pipe,
+        };
     }
 
     /// <summary>v13: inference params with the decision grammar injected at the sampler —

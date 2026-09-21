@@ -1,14 +1,13 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantLLM
 
-Generated: 2026-09-19T16:04:07.939576+00:00
-Edges: 28  |  Packages: 2
+Generated: 2026-09-21T22:03:46.347527+00:00
+Edges: 27  |  Packages: 2
 
 ---
 
 ## ECAssistantLLM
 
 - ClientManager ──implements──► IClientManager (ECAssistantLLM)
-- ClientManager ──uses──► ILogger (ECAssistantLLM)
 - ClientManager ──uses──► ILogger (ECAssistantLLM)
 - ClientManager ──uses──► ILogger (ECAssistantLLM)
 - InferenceScheduler ──implements──► IInferenceScheduler (ECAssistantLLM)

@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 124  |  LOC: 9004  |  ~5364 tokens
+Types: 135  |  LOC: 9523  |  ~5712 tokens
 
 ---
 
@@ -108,11 +108,11 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > Manages client connections: registration, heartbeat, eviction.
 Implements: IClientManager, IDisposable
 Constructor:
-  - ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected, Engine.Backends.ProcessSessionRegistry? processSessionRegistry)
+  - ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected = null, Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null)
 Cross-package deps: ECAssistant.LLM.Interfaces
 
-### Class: ClientManagerGraceTests
-> ClientManager shutdown grace: last-client disconnect starts a countdown; a client
+### Class: ClientManagerAlwaysAliveTests
+> Always-alive contract: the server NEVER self-shuts down. Last-client disconnect
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Interfaces, Xunit
 
 ### Class: ClientRegisterRequest
@@ -192,6 +192,9 @@ Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
 > GpuLayerGuard decision table: only Vulkan + DeltaNet-MoE + configured layers clamps.
 Cross-package deps: ECAssistant.LLM.Engine.Backends, Xunit
 
+### Class: GrammarProbeTests
+Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
+
 ### Class: HealthTests
 > Tests for GET /eca/health.
 Constructor:
@@ -226,6 +229,15 @@ Implements: Exception
 Constructor:
   - InvalidDecisionException(string message)
 Cross-package deps: ECAssistant.LLM.Models
+
+### Class: InvalidToolCallException
+> One entry of the OpenAI-native `tools` request field: a function the client
+Implements: Exception
+Constructor:
+  - InvalidToolCallException(string message)
+
+### Class: JsonSchemaGrammarConverter
+> Converts a (subset of) JSON Schema into GBNF grammar fragments the llama.cpp
 
 ### Class: KvCacheTests
 > Tests for KV-cache operations: prefill, save-state, rewind, reset, and the
@@ -308,6 +320,16 @@ Implements: IDisposable
 Constructor:
   - MultiModelHost(LlmServerConfig config, ILogger logger, string rootDir, BackendSelector? backendSelector = null)
 Cross-package deps: LLama, ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
+
+### Class: NativeToolsTests
+> Tests for native OpenAI tools support: schema → GBNF conversion, tool-call
+Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
+
+### Class: OpenAiFunctionSpec
+> One entry of the OpenAI-native `tools` request field: a function the client
+
+### Class: OpenAiToolSpec
+> One entry of the OpenAI-native `tools` request field: a function the client
 
 ### Class: PlatformDetector
 > Detects the current runtime platform. Stateless utility — no mutable state.
@@ -506,6 +528,16 @@ Constructor:
   - TokenizeTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
+### Class: ToolCallDecoder
+> Decodes a grammar-forced tool_calls generation (OpenAI wire shape array) into
+Cross-package deps: ECAssistant.LLM.Models
+
+### Class: ToolCallGrammarFactory
+> Builds a GBNF grammar that forces the model's output into the OpenAI
+
+### Class: UniqueRuleNames
+> Converts a (subset of) JSON Schema into GBNF grammar fragments the llama.cpp
+
 ### Class: VisionImageSuiteE2ETests
 > FULL-SYSTEM vision image suite (Category=E2E): runs against an EXTERNALLY
 Implements: IAsyncLifetime
@@ -555,6 +587,16 @@ Constructor:
 Constructor:
   - SessionStatusInfo(string ClientId, string SessionId, string ModelId, bool IsPrefilled, int ApproxTokenCount, uint ContextSize, double EstimatedVramMb, DateTime CreatedAt, DateTime LastActivity)
 Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
+
+### Record: ToolCall
+> One entry of the OpenAI-native `tools` request field: a function the client
+Constructor:
+  - ToolCall(string Name, string ArgumentsJson)
+
+### Record: ToolCallGeneration
+> One entry of the OpenAI-native `tools` request field: a function the client
+Constructor:
+  - ToolCallGeneration(IReadOnlyList<ToolCall> Calls)
 
 ### Record: VisionImage
 > OpenAI-compatible chat completion request.

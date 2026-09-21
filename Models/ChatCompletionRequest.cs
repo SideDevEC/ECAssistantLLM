@@ -43,6 +43,26 @@ public sealed class ChatCompletionRequest
     [JsonPropertyName("structured")]
     public bool Structured { get; set; } = false;
 
+    /// <summary>OpenAI-native function calling: server grammar-constrains generation against
+    /// these schemas and returns message.tool_calls. Ignored in stream mode (400).</summary>
+    [JsonPropertyName("tools")]
+    public List<OpenAiToolSpec>? Tools { get; set; }
+
+    /// <summary>OpenAI tool_choice: "auto" | "none" | {type:"function",function:{name}}.
+    /// "none" = tools declared but disabled. Other values default to auto.</summary>
+    [JsonPropertyName("tool_choice")]
+    public JsonElement? ToolChoice { get; set; }
+
+    [JsonIgnore]
+    public bool ToolsActive => Tools is { Count: > 0 } && !IsToolChoiceNone();
+
+    public bool IsToolChoiceNone()
+    {
+        if (ToolChoice is not { } c) return false;
+        if (c.ValueKind == JsonValueKind.String) return c.GetString() == "none";
+        return false;
+    }
+
     [JsonPropertyName("stop")]
     public List<string>? Stop { get; set; }
 }
