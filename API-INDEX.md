@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-21T22:26:41.005259+00:00
+Generated: 2026-09-21T22:28:53.889651+00:00
 Packages: 2  |  Types: 185
 
 ---
 
-## ECAssistantLLM (137 types, ~9628 LOC)
+## ECAssistantLLM (137 types, ~9658 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
