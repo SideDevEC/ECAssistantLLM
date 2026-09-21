@@ -894,6 +894,16 @@ public sealed class RequestRouter : IRequestRouter
                 ? _models.MainModelId
                 : req.ModelId;
 
+            // Unknown model id (stale client config, e.g. pre-catalog default "main"):
+            // resolve to the server's main model instead of hard-failing — the client
+            // wants its configured chat model and the server knows best what that is.
+            var requestModelExists = _config.Models.Any(m => m.Id.Equals(requestedModelId, StringComparison.OrdinalIgnoreCase));
+            if (!requestModelExists)
+            {
+                _logger.Warn("Router", $"CreateSession: model '{requestedModelId}' not configured — falling back to main model '{_models.MainModelId}'");
+                requestedModelId = _models.MainModelId;
+            }
+
             // Process-backend models get transcript-backed sessions in their own registry
             // (no VramBudget — KV lives in the child process), identical response shape.
             var processModelCfg = _config.Models.FirstOrDefault(m => m.Id.Equals(requestedModelId, StringComparison.OrdinalIgnoreCase) && IsProcessModel(m.Id));
