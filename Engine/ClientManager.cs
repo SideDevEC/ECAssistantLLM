@@ -148,13 +148,3 @@ internal sealed class ClientRecord
         ActiveSessions = 0;
     }
 }
-
-/// <summary>Read-only client info for API responses.</summary>
-public sealed record ClientInfo(
-    string Id,
-    string Name,
-    string Version,
-    DateTime RegisteredAt,
-    DateTime LastHeartbeat,
-    int ActiveSessions
-);

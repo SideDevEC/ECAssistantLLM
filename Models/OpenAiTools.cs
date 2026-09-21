@@ -44,13 +44,6 @@ public sealed class OpenAiFunctionSpec
 /// </summary>
 public sealed record ToolCall(string Name, string ArgumentsJson);
 
-/// <summary>
-/// Result of decoding a grammar-forced tool-call generation. Throws
-/// InvalidToolCallException on schema-invalid output (missing required props,
-/// unknown tool, malformed JSON).
-/// </summary>
-public sealed record ToolCallGeneration(IReadOnlyList<ToolCall> Calls);
-
 public sealed class InvalidToolCallException : Exception
 {
     public InvalidToolCallException(string message) : base(message) { }
