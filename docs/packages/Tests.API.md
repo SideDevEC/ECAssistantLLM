@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 47  |  LOC: 4196  |  ~2202 tokens
+Types: 48  |  LOC: 4248  |  ~2248 tokens
 
 ---
 
@@ -214,6 +214,10 @@ Cross-package deps: ECAssistant.LLM.Server, Xunit
 Constructor:
   - TokenizeTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: ToolsetFingerprintTests
+> v14.9: toolset fingerprint — deterministic, order-insensitive (sorted by
+Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
 
 ### Class: VisionImageSuiteE2ETests
 > FULL-SYSTEM vision image suite (Category=E2E): runs against an EXTERNALLY

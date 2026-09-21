@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-21T22:03:46.346729+00:00
-Packages: 2  |  Types: 182
+Generated: 2026-09-21T22:26:41.005259+00:00
+Packages: 2  |  Types: 185
 
 ---
 
-## ECAssistantLLM (135 types, ~9523 LOC)
+## ECAssistantLLM (137 types, ~9628 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -135,6 +135,8 @@ Packages: 2  |  Types: 182
 - 🟡 ToolCallDecoder  (ECAssistantLLM)
 - 🟣 ToolCallGeneration  (ECAssistantLLM)  deps: [IReadOnlyList]
 - 🟡 ToolCallGrammarFactory  (ECAssistantLLM)
+- 🟡 ToolsetFingerprint  (ECAssistantLLM)
+- 🟡 ToolsetFingerprintTests  (ECAssistantLLM)
 - 🟡 UniqueRuleNames  (ECAssistantLLM)
 - 🟣 VisionImage  (ECAssistantLLM)  deps: [string, byte]
 - 🟡 VisionImageSuiteE2ETests : IAsyncLifetime  (ECAssistantLLM)
@@ -143,7 +145,7 @@ Packages: 2  |  Types: 182
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (47 types, ~4196 LOC)
+## Tests (48 types, ~4248 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -189,6 +191,7 @@ Packages: 2  |  Types: 182
 - 🟡 TestServerFixture : IAsyncLifetime  (Tests)
 - 🟡 ThinkFilterTests  (Tests)
 - 🟡 TokenizeTests  (Tests)  deps: [TestServerFixture]
+- 🟡 ToolsetFingerprintTests  (Tests)
 - 🟡 VisionImageSuiteE2ETests : IAsyncLifetime  (Tests)
 - 🟡 VisionInferenceE2ETests  (Tests)
 - 🟡 VramBudgetTests  (Tests)

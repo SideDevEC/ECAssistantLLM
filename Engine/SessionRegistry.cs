@@ -40,7 +40,7 @@ public sealed class SessionRegistry : IDisposable
     /// <summary>
     /// Create a new session with its own KV cache.
     /// </summary>
-    public SessionContext CreateSession(string clientId, string sessionId, string? modelId = null)
+    public SessionContext CreateSession(string clientId, string sessionId, string? modelId = null, string? toolsHash = null)
     {
         var key = $"{clientId}:{sessionId}";
 
@@ -75,6 +75,9 @@ public sealed class SessionRegistry : IDisposable
             context.Dispose();
             throw new InvalidOperationException($"VRAM budget exceeded (would need {context.EstimatedVramMb:F0} MB, {_vram.CurrentUsageMb:F0} MB in use of {_vram.MaxMb} MB budget)");
         }
+
+        if (!string.IsNullOrEmpty(toolsHash))
+            context.ToolsHash = toolsHash;
 
         _logger.Info("SessionRegistry", $"Created session '{key}' on model '{slot.Id}'");
         return context;

@@ -977,12 +977,13 @@ public sealed class RequestRouter : IRequestRouter
             }
 
             // VramBudget reservation + release happen inside SessionRegistry (symmetric accounting)
-            var session = _sessions.CreateSession(clientId, req.SessionId, req.ModelId);
+            var session = _sessions.CreateSession(clientId, req.SessionId, req.ModelId, req.ToolsHash);
 
             await SseStreamer.WriteJsonAsync(ctx.Response, new
             {
                 session_id = session.SessionId,
                 client_id = session.ClientId,
+                tools_hash = session.ToolsHash,
                 model_id = session.ModelId,
                 context_size = session.ContextSize,
                 estimated_vram_mb = session.EstimatedVramMb
@@ -1579,6 +1580,30 @@ public sealed class RequestRouter : IRequestRouter
         SessionContext? session, ModelSlot templateSlot, string prompt, List<byte[]> images, CancellationToken ct)
     {
         var tools = req.Tools!.Where(t => t.IsValid).ToList();
+        var fingerprint = ToolsetFingerprint.Compute(tools);
+        if (session != null && session.ToolsHash != fingerprint)
+        {
+            if (session.ToolsHash != null)
+            {
+                _logger.Warn("Router", $"[Tools] session {session.SessionId} toolset changed ({session.ToolsHash[..Math.Min(8, session.ToolsHash.Length)]} → {fingerprint[..8]}) — resetting KV cache");
+                try
+                {
+                    session.Reset();
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error("Router", $"[Tools] cache reset failed on toolset change: {ex.Message}");
+                    await SseStreamer.WriteJsonAsync(ctx.Response,
+                        new ErrorResponse { Error = new() { Message = $"Toolset changed and KV cache reset failed: {ex.Message}", Type = "model_error" } }, 503);
+                    return;
+                }
+            }
+            else
+            {
+                _logger.Info("Router", $"[Tools] session {session.SessionId} adopting toolset {fingerprint[..8]}");
+            }
+            session.ToolsHash = fingerprint;
+        }
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var sb = new StringBuilder();
         var earlyStop = false;

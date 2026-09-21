@@ -90,6 +90,10 @@ public sealed class CreateSessionRequest
 
     [JsonPropertyName("model_id")]
     public string? ModelId { get; set; }
+
+    /// <summary>v14.9: optional toolset fingerprint for pinning (see ToolsetFingerprint).</summary>
+    [JsonPropertyName("tools_hash")]
+    public string? ToolsHash { get; set; }
 }
 
 /// <summary>

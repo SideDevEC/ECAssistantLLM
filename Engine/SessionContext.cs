@@ -75,6 +75,13 @@ public sealed class SessionContext : IDisposable
     /// <summary>Last activity time (for eviction).</summary>
     public DateTime LastActivity { get; set; } = DateTime.UtcNow;
 
+    /// <summary>v14.9: toolset pinning — fingerprint of the tool definitions this
+    /// session's KV cache was built with. Set at session create (client-supplied) or
+    /// adopted on first tools chat. A mismatch on a later tools request triggers a
+    /// deterministic cache reset (tool defs live in the prompt — a stale cache breaks
+    /// prefix reuse and pollutes context). Null = not pinned.</summary>
+    public string? ToolsHash { get; set; }
+
     /// <summary>Estimated KV cache memory in MB.</summary>
     public double EstimatedVramMb { get; }
 

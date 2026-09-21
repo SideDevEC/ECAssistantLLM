@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 135  |  LOC: 9523  |  ~5712 tokens
+Types: 137  |  LOC: 9628  |  ~5794 tokens
 
 ---
 
@@ -534,6 +534,14 @@ Cross-package deps: ECAssistant.LLM.Models
 
 ### Class: ToolCallGrammarFactory
 > Builds a GBNF grammar that forces the model's output into the OpenAI
+
+### Class: ToolsetFingerprint
+> Deterministic fingerprint of a toolset (OpenAI tools array) used for
+Cross-package deps: ECAssistant.LLM.Models
+
+### Class: ToolsetFingerprintTests
+> v14.9: toolset fingerprint — deterministic, order-insensitive (sorted by
+Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
 
 ### Class: UniqueRuleNames
 > Converts a (subset of) JSON Schema into GBNF grammar fragments the llama.cpp
