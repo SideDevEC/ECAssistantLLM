@@ -44,6 +44,11 @@ public sealed class ProcessSession : IDisposable
 
     public string ModelId { get; }
 
+    /// <summary>v14.9: toolset pinning fingerprint (see ToolsetFingerprint). Transcript-
+    /// backed sessions don't hold the KV cache, so a mismatch just updates the pin —
+    /// the child's prefix cache rebuilds naturally. Null = not pinned.</summary>
+    public string? ToolsHash { get; set; }
+
     /// <summary>Context size of the underlying model (for status reporting).</summary>
     public uint ContextSize { get; }
 

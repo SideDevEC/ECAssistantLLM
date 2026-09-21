@@ -303,9 +303,11 @@ public sealed class RequestRouter : IRequestRouter
         // combination — the raw 1:1 proxy is intentionally unreachable here (was the
         // pre-parity escape hatch that silently bypassed ThinkFilter + structured mode).
 
-        // Native OpenAI tools mode (process backend): stateless only — the child
+        // Native OpenAI tools mode (process backend): stateless or session — the child
         // receives the grammar alongside the messages, output is decoded and returned
-        // as typed message.tool_calls. Session+tools and stream+tools are rejected.
+        // as typed message.tool_calls. Sessions are transcript-backed, so the tool turn
+        // appends to the transcript like any other (child prefix-cache stays warm).
+        // stream+tools is rejected (tool_calls have no delta representation here).
         if (req.ToolsActive)
         {
             if (req.Messages.Count == 0)
@@ -314,26 +316,59 @@ public sealed class RequestRouter : IRequestRouter
                     new ErrorResponse { Error = new() { Message = "messages is required", Type = "invalid_request" } }, 400);
                 return;
             }
-            if (req.Stream || req.SessionId != null)
+            if (req.Stream)
             {
                 await SseStreamer.WriteJsonAsync(ctx.Response,
-                    new ErrorResponse { Error = new() { Message = "tools are supported on stateless non-streaming process requests only", Type = "invalid_request" } }, 400);
-                return;
-            }
-            if (_processStateless == null)
-            {
-                await SseStreamer.WriteJsonAsync(ctx.Response,
-                    new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
+                    new ErrorResponse { Error = new() { Message = "tools are not supported with stream=true on the process backend", Type = "invalid_request" } }, 400);
                 return;
             }
 
             var tools = req.Tools!.Where(t => t.IsValid).ToList();
-            var toolsGrammar = ToolCallGrammarFactory.Build(tools);
-            var maxTokens = Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
+            var fingerprint = ToolsetFingerprint.Compute(tools);
+            IAsyncEnumerable<string> toolsStream;
+            string sessionLabel;
+            if (req.SessionId != null)
+            {
+                var procSession = _processSessions?.Get(clientId, req.SessionId);
+                if (procSession == null)
+                {
+                    await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
+                    return;
+                }
+                // v14.9 pinning: transcript-backed sessions carry ToolsHash like KV
+                // sessions; on mismatch we just update — the child's prefix cache
+                // rebuilds naturally on the next turn (no explicit KV reset needed).
+                var prevHash = procSession.ToolsHash;
+                if (prevHash != fingerprint)
+                {
+                    _logger.Warn("Router", $"[Tools/process] session {procSession.SessionId} toolset changed ({(prevHash ?? "unpinned")[..Math.Min(8, (prevHash ?? "unpinned").Length)]} → {fingerprint[..8]}) — updating pin");
+                    procSession.ToolsHash = fingerprint;
+                }
+                toolsStream = procSession.InferAsync(req.Messages, req, ct, grammar: ToolCallGrammarFactory.Build(tools));
+                sessionLabel = req.SessionId;
+            }
+            else
+            {
+                if (_processStateless == null)
+                {
+                    await SseStreamer.WriteJsonAsync(ctx.Response,
+                        new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
+                    return;
+                }
+                var toolsMaxTokens = Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
+                toolsStream = _processStateless.InferStatelessAsync(
+                    req.Model, req.Messages, req, grammar: ToolCallGrammarFactory.Build(tools), toolsMaxTokens, ct);
+                sessionLabel = "stateless";
+            }
+
             var toolsSb = new StringBuilder();
-            await foreach (var token in ThinkFilter.ApplyAsync(
-                _processStateless.InferStatelessAsync(req.Model, req.Messages, req, grammar: toolsGrammar, maxTokens, ct), ct))
+            var toolsEarlyStop = false;
+            await foreach (var token in toolsStream)
+            {
                 toolsSb.Append(token);
+                if (TryParseCompleteJson(toolsSb.ToString())) { toolsEarlyStop = true; break; }
+            }
+            _logger.Info("Router", $"[Tools/process] generated {toolsSb.Length} chars (session={sessionLabel}, earlyStop={toolsEarlyStop})");
 
             try
             {
@@ -342,7 +377,7 @@ public sealed class RequestRouter : IRequestRouter
             }
             catch (InvalidToolCallException ex)
             {
-                _logger.Warn("Router", $"[Tools/process] decode failed: {ex.Message}");
+                _logger.Warn("Router", $"[Tools/process] decode failed: {ex.Message} | raw: {toolsSb.ToString()[..Math.Min(toolsSb.Length, 300)]}");
                 await SseStreamer.WriteJsonAsync(ctx.Response,
                     new ErrorResponse { Error = new() { Message = $"Invalid tool_calls output: {ex.Message}", Type = "invalid_tool_calls" } }, 422);
             }
