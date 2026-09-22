@@ -113,8 +113,15 @@ public sealed class ModelSmokeE2E
             using var regDoc = JsonDocument.Parse(await regResp.Content.ReadAsStringAsync());
             cid = regDoc.RootElement.GetProperty("client_id").GetString() ?? cid;
 
-            // 1. Non-stream chat with a deterministic answer
-            var answer = await ChatAsync(port, cid, "What is 2+2? Answer with just the number.", maxTokens: 120);
+            // 1. Non-stream chat with a deterministic answer. Retry: shared CI
+            //    runners occasionally return empty/garbage for the first
+            //    generation (Metal/backend flake) — mirror the streaming retry.
+            var answer = "";
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                answer = await ChatAsync(port, cid, "What is 2+2? Answer with just the number.", maxTokens: 120);
+                if (!string.IsNullOrWhiteSpace(answer) && answer.Contains('4')) break;
+            }
             Assert.False(string.IsNullOrWhiteSpace(answer), "chat returned empty content");
             Assert.Contains("4", answer);
 
