@@ -1031,7 +1031,12 @@ public sealed class RequestRouter : IRequestRouter
             }
 
             // VramBudget reservation + release happen inside SessionRegistry (symmetric accounting)
-            var session = _sessions.CreateSession(clientId, req.SessionId, req.ModelId, req.ToolsHash);
+            // v14.10.1: pass the RESOLVED model id — with the raw id an unknown/
+            // foreign model (e.g. a client that switched from remote to local but still
+            // sends its cloud model_id) falls back in the handler above, yet the raw id
+            // reached the registry, threw, and surfaced as 400 → the client saw every
+            // CreateSession fail and dropped to a context-free degraded mode.
+            var session = _sessions.CreateSession(clientId, req.SessionId, requestedModelId, req.ToolsHash);
 
             await SseStreamer.WriteJsonAsync(ctx.Response, new
             {
