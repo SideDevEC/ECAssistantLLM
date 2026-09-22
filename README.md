@@ -28,6 +28,14 @@ ECAssistantLLM is a self-contained HTTP server that wraps [LLamaSharp](https://g
 - **Cross-platform** — macOS (arm64), Linux (x64), Windows (x64) via LLamaSharp native backends
 - **Tokenization** — `/eca/tokenize` endpoint for exact token counting
 
+## What makes it different
+
+- **Caller-supplied GBNF grammar** — send any grammar with your request (`"grammar": "..."`) and the server enforces your output shape at the sampler level: invalid tokens are physically impossible. Your schema, your rules — the server stays schema-agnostic.
+- **JSON Schema → tool-call grammar** — pass OpenAI `tools` with JSON Schema parameters and the server auto-generates a GBNF grammar (enum literals, required properties, typed args) so native `tool_calls` are always decodable — on a 4B local model.
+- **Structured decision envelope** — the built-in think/answer/toolcall envelope with early termination (~70% faster on simple decisions): generation stops the moment the JSON is complete.
+- **Real multimodal vision** — MTMD/mmproj image understanding over the OpenAI content-parts API, in-process and stateless; screenshots and scanned documents analyzed locally.
+- **KV cache as a product** — per-session prefix caching with rewind, toolset pinning (deterministic reset on mismatch), and warm-prompt reuse across turns.
+
 ## Architecture
 
 ```
