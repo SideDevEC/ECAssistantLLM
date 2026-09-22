@@ -18,6 +18,8 @@ public class GrammarProbeTests
                 """).RootElement,
         }};
         var g = ToolCallGrammarFactory.Build(new[] { tool });
-        File.WriteAllText("/tmp/probe-grammar.txt", g);
+        // Cross-platform temp path (/tmp breaks Windows — resolves to D:\tmp)
+        var probePath = Path.Combine(Path.GetTempPath(), "probe-grammar.txt");
+        File.WriteAllText(probePath, g);
     }
 }
