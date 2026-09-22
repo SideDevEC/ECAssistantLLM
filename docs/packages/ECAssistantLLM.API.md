@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 137  |  LOC: 9658  |  ~5794 tokens
+Types: 135  |  LOC: 9689  |  ~5682 tokens
 
 ---
 
@@ -568,12 +568,6 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
 ### Class: VulkanAvailabilityProbe
 > Determines whether Vulkan is the GPU backend an in-process LLamaSharp model would use.
 
-### Record: ClientInfo
-> Manages client connections: registration, heartbeat, eviction.
-Constructor:
-  - ClientInfo(string Id, string Name, string Version, DateTime RegisteredAt, DateTime LastHeartbeat, int ActiveSessions)
-Cross-package deps: ECAssistant.LLM.Interfaces
-
 ### Record: GpuLayerDecision
 > Result of a GPU-layer guard decision: the layer count that should actually be used,
 Constructor:
@@ -600,11 +594,6 @@ Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config,
 > One entry of the OpenAI-native `tools` request field: a function the client
 Constructor:
   - ToolCall(string Name, string ArgumentsJson)
-
-### Record: ToolCallGeneration
-> One entry of the OpenAI-native `tools` request field: a function the client
-Constructor:
-  - ToolCallGeneration(IReadOnlyList<ToolCall> Calls)
 
 ### Record: VisionImage
 > OpenAI-compatible chat completion request.

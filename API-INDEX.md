@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-21T22:28:53.889651+00:00
-Packages: 2  |  Types: 185
+Generated: 2026-09-22T06:30:51.218867+00:00
+Packages: 2  |  Types: 183
 
 ---
 
-## ECAssistantLLM (137 types, ~9658 LOC)
+## ECAssistantLLM (135 types, ~9689 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -26,7 +26,6 @@ Packages: 2  |  Types: 185
 - 🟡 ChunkChoice  (ECAssistantLLM)
 - 🟡 ChunkDelta  (ECAssistantLLM)
 - 🟡 ClientAuthTests  (ECAssistantLLM)
-- 🟣 ClientInfo  (ECAssistantLLM)  deps: [string, string, string, DateTime, DateTime, int]
 - 🟡 ClientManagementTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ClientManager : IClientManager, IDisposable  (ECAssistantLLM)  deps: [SessionRegistry, LlmServerConfig, ILogger, SessionRegistry, LlmServerConfig, ILogger, Action? onLastClientDisconnected =, ProcessSessionRegistry? processSessionRegistry =]
 - 🟡 ClientManagerAlwaysAliveTests  (ECAssistantLLM)
@@ -133,7 +132,6 @@ Packages: 2  |  Types: 185
 - 🟡 TokenizeTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟣 ToolCall  (ECAssistantLLM)  deps: [string, string]
 - 🟡 ToolCallDecoder  (ECAssistantLLM)
-- 🟣 ToolCallGeneration  (ECAssistantLLM)  deps: [IReadOnlyList]
 - 🟡 ToolCallGrammarFactory  (ECAssistantLLM)
 - 🟡 ToolsetFingerprint  (ECAssistantLLM)
 - 🟡 ToolsetFingerprintTests  (ECAssistantLLM)

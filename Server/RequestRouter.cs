@@ -258,6 +258,12 @@ public sealed class RequestRouter : IRequestRouter
             }
 
             var maxTokens = Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
+            if (req.Stream && req.Grammar != null)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = "grammar is not supported with stream=true", Type = "invalid_request" } }, 400);
+                return;
+            }
             var statelessClient = _processStateless;
             if (statelessClient == null)
             {
@@ -268,14 +274,14 @@ public sealed class RequestRouter : IRequestRouter
             if (req.Stream)
             {
                 var tokenStream = ThinkFilter.ApplyAsync(
-                    statelessClient.InferStatelessAsync(req.Model, req.Messages, req, grammar: null, maxTokens, ct), ct);
+                    statelessClient.InferStatelessAsync(req.Model, req.Messages, req, grammar: req.Grammar, maxTokens, ct), ct);
                 await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
             }
             else
             {
                 var sb = new StringBuilder();
                 await foreach (var token in ThinkFilter.ApplyAsync(
-                    statelessClient.InferStatelessAsync(req.Model, req.Messages, req, grammar: null, maxTokens, ct), ct))
+                    statelessClient.InferStatelessAsync(req.Model, req.Messages, req, grammar: req.Grammar, maxTokens, ct), ct))
                     sb.Append(token);
 
                 var response = new
@@ -476,15 +482,22 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
+        if (req.Stream && req.Grammar != null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "grammar is not supported with stream=true", Type = "invalid_request" } }, 400);
+            return;
+        }
+
         if (req.Stream)
         {
-            var tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct), ct);
+            var tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct, grammar: req.Grammar), ct);
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
         }
         else
         {
             var sb = new StringBuilder();
-            await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct), ct))
+            await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct, grammar: req.Grammar), ct))
                 sb.Append(token);
 
             var response = new
@@ -650,12 +663,18 @@ public sealed class RequestRouter : IRequestRouter
             if (session != null)
             {
                 await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images), ct))
+                {
                     sb.Append(token);
+                    if (req.Grammar != null && TryParseCompleteJson(sb.ToString())) break;
+                }
             }
             else
             {
                 await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(templateSlot, prompt, inferenceParams, images, ct), ct))
+                {
                     sb.Append(token);
+                    if (req.Grammar != null && TryParseCompleteJson(sb.ToString())) break;
+                }
             }
 
             var response = new
@@ -1524,7 +1543,31 @@ public sealed class RequestRouter : IRequestRouter
                 .FirstOrDefault(m => m.Id.Equals(req.Model, StringComparison.OrdinalIgnoreCase))?.MaxTokens ?? 0;
             if (perModel > 0) maxTokens = perModel;
         }
+        // v14.10: caller-supplied GBNF grammar (e.g. VisionStructure) — constrain at the sampler.
+        if (!string.IsNullOrEmpty(req.Grammar))
+            return CreateGrammarInferenceParams(req.Grammar, req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, maxTokens);
+
         return CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, maxTokens, req.Stop);
+    }
+
+    /// <summary>Inference params with a caller-supplied GBNF grammar injected at the sampler (root rule "root").</summary>
+    private static LLama.Common.InferenceParams CreateGrammarInferenceParams(
+        string grammar, float? temperature, float? topP, int? topK, float? repeatPenalty, int? maxTokens)
+    {
+        var pipe = new LLama.Sampling.DefaultSamplingPipeline
+        {
+            Temperature = temperature ?? 0.3f,
+            TopP = topP ?? 0.95f,
+            TopK = topK ?? 40,
+            RepeatPenalty = repeatPenalty ?? 1.1f,
+            Grammar = new LLama.Sampling.Grammar(grammar, "root"),
+        };
+        return new LLama.Common.InferenceParams
+        {
+            MaxTokens = Math.Clamp(maxTokens ?? 512, 1, MaxInferenceTokens),
+            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
+            SamplingPipeline = pipe
+        };
     }
 
     /// <summary>

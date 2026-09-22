@@ -43,6 +43,12 @@ public sealed class ChatCompletionRequest
     [JsonPropertyName("structured")]
     public bool Structured { get; set; } = false;
 
+    /// <summary>v14.10: caller-supplied GBNF grammar — constrains output to the given
+    /// shape (e.g. VisionStructureResult from ECAssistantCore). Local models only;
+    /// rejected with stream=true. Response comes back as normal message content.</summary>
+    [JsonPropertyName("grammar")]
+    public string? Grammar { get; set; }
+
     /// <summary>OpenAI-native function calling: server grammar-constrains generation against
     /// these schemas and returns message.tool_calls. Ignored in stream mode (400).</summary>
     [JsonPropertyName("tools")]
