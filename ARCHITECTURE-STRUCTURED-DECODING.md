@@ -23,6 +23,7 @@ string ::= "\"" ( [^"\\] | "\\" ( ["\\bfnrt] | "u" [0-9a-fA-F][0-9a-fA-F][0-9a-f
 object ::= "{" ws (string ":" ws string ("," ws string ":" ws string)*)? ws "}"
 ws ::= [ \t\n]*
 ```
+- `tool_names` (v14.12.1): structured requests may carry registered tool names; RequestRouter builds `DecisionGrammar.BuildGbnf(req.ToolNames)` — toolcall.name constrained to the union. Absent/null → permissive grammar (back-compat, old callers unchanged).
 
 ## Pipeline (v14.7 — early termination)
 ```

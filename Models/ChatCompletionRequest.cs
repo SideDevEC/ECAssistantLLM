@@ -54,6 +54,13 @@ public sealed class ChatCompletionRequest
     [JsonPropertyName("tools")]
     public List<OpenAiToolSpec>? Tools { get; set; }
 
+    /// <summary>v14.12.1: registered tool names. When set with structured=true, the
+    /// decision grammar's toolcall.name rule is constrained to this union — the model
+    /// cannot emit a tool name that is not registered. Null/empty → permissive grammar
+    /// (back-compat). Local models only (structured path).</summary>
+    [JsonPropertyName("tool_names")]
+    public List<string>? ToolNames { get; set; }
+
     /// <summary>OpenAI tool_choice: "auto" | "none" | {type:"function",function:{name}}.
     /// "none" = tools declared but disabled. Other values default to auto.</summary>
     [JsonPropertyName("tool_choice")]

@@ -416,7 +416,7 @@ public sealed class RequestRouter : IRequestRouter
                     await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
                     return;
                 }
-                structuredStream = structuredSession.InferAsync(req.Messages, req, ct, grammar: DecisionGrammar.Gbnf);
+                structuredStream = structuredSession.InferAsync(req.Messages, req, ct, grammar: DecisionGrammar.BuildGbnf(req.ToolNames));
                 sessionIdLabel = req.SessionId;
             }
             else
@@ -432,7 +432,7 @@ public sealed class RequestRouter : IRequestRouter
                 }
                 var structuredMaxTokens = Math.Clamp(Math.Min(req.MaxTokens ?? 256, 256), 1, 256);
                 structuredStream = stateless.InferStatelessAsync(
-                    req.Model, req.Messages, req, grammar: DecisionGrammar.Gbnf, structuredMaxTokens, ct);
+                    req.Model, req.Messages, req, grammar: DecisionGrammar.BuildGbnf(req.ToolNames), structuredMaxTokens, ct);
                 sessionIdLabel = "stateless";
             }
 
@@ -1790,7 +1790,7 @@ public sealed class RequestRouter : IRequestRouter
             TopP = req.TopP ?? 0.95f,
             TopK = req.TopK ?? 40,
             RepeatPenalty = req.RepeatPenalty ?? 1.1f,
-            Grammar = new LLama.Sampling.Grammar(DecisionGrammar.Gbnf, DecisionGrammar.Root),
+            Grammar = new LLama.Sampling.Grammar(DecisionGrammar.BuildGbnf(req.ToolNames), DecisionGrammar.Root),
         };
         // v13: NO anti-prompts here — the grammar already bounds output, and a stop
         // sequence (e.g. "User:") can legally occur inside a JSON string value,
