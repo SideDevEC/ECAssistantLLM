@@ -48,14 +48,14 @@ No `<lm>`, `<thinking>`, `<toolcall>`, `<output>` tags anywhere. The orchestrato
 - `ECAssistantLLM/Models/DecisionEnvelope.cs` — immutable DTO
 - `ECAssistantCore/Engine/StructuredDecisionAdapter.cs` — envelope JSON → `LLMDecision` (stateless, `ParseDecision()`)
 - `ECAssistantCore/Engine/LLMDecision.cs` — decision DTO with `FromEnvelope()` factory + `Reasoning` property
-- `ECAssistantCore/Engine/EAgentEngine.cs` — `GenerateAsync()` returns `Task<LLMDecision>`; stores `[reasoning]` in transcript
+- `ECAssistantCore/Engine/AgentEngine.cs` — `GenerateAsync()` returns `Task<LLMDecision>`; stores `[reasoning]` in transcript
 - `ECAssistantCore/Orchestrator.cs` — consumes `LLMDecision` directly (no `ParseLLMDecision`)
 - `ECAssistantLLM/Engine/DecisionGrammar.cs` — GBNF template (stateless)
 - `ECAssistantLLM/Engine/StructuredDecoder.cs` — envelope JSON → typed decision DTO + control char escaping
 - `ECAssistantLLM/Models/DecisionEnvelope.cs` — immutable DTO
 - `ECAssistantCore/Engine/StructuredDecisionAdapter.cs` — envelope JSON → `LLMDecision` (stateless, `ParseDecision()`)
 - `ECAssistantCore/Engine/LLMDecision.cs` — decision DTO with `FromEnvelope()` factory
-- `ECAssistantCore/Engine/EAgentEngine.cs` — `GenerateAsync()` returns `Task<LLMDecision>`
+- `ECAssistantCore/Engine/AgentEngine.cs` — `GenerateAsync()` returns `Task<LLMDecision>`
 - `ECAssistantCore/Orchestrator.cs` — consumes `LLMDecision` directly (no `ParseLLMDecision`)
 
 ## KV Cache
