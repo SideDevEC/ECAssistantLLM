@@ -1,16 +1,15 @@
 # ECAssistantLLM.API.md
 
-Types: 136  |  LOC: 9798  |  ~5723 tokens
+Types: 134  |  LOC: 9712  |  ~5679 tokens
 
 ---
 
 ### Interface: IClientManager
-> Interface for managing client connections: registration, heartbeat, eviction.
+> Interface for managing client connections: registration and disconnection.
 Properties:
   - int ClientCount { get; set; }
 Methods:
   - string Register(string clientName, string? version = null)
-  - bool Heartbeat(string clientId, int activeSessions)
   - bool Disconnect(string clientId)
   - bool IsValid(string clientId)
   - void Dispose()
@@ -204,12 +203,6 @@ Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
 Constructor:
   - HealthTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
-
-### Class: HeartbeatRequest
-> Generic API error response.
-
-### Class: HeartbeatResponse
-> Generic API error response.
 
 ### Class: HeartbeatTests
 > Tests for heartbeat mechanism. Uses the main TestServerFixture (timeout 300s).

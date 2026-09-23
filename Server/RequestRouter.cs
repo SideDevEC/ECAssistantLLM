@@ -116,18 +116,7 @@ public sealed class RequestRouter : IRequestRouter
         if (path == "/eca/clients" && method == "POST")
         { await HandleRegisterClientAsync(ctx); return; }
 
-        if (path.StartsWith("/eca/clients/") && path.EndsWith("/heartbeat") && method == "POST")
-        {
-            var pathClientId = ExtractClientIdFromPath(path);
-            if (!MatchesHeaderClient(pathClientId, clientId))
-            {
-                await SseStreamer.WriteJsonAsync(res,
-                    new ErrorResponse { Error = new() { Message = "X-Client-Id header does not match the client in the request path", Type = "forbidden" } }, 403);
-                return;
-            }
-            await HandleHeartbeatAsync(ctx, pathClientId);
-            return;
-        }
+        // Heartbeat endpoint REMOVED (Emre 2026-09-23): no client eviction → heartbeats pointless.
 
         if (path.StartsWith("/eca/clients/") && method == "DELETE")
         {
@@ -900,26 +889,6 @@ public sealed class RequestRouter : IRequestRouter
         {
             ClientId = clientId,
             ServerVersion = LlmServerInfo.Version
-        });
-    }
-
-    private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string clientId)
-    {
-        var req = await SseStreamer.ReadJsonAsync<HeartbeatRequest>(ctx.Request);
-        if (!_clients.IsValid(clientId))
-        {
-            await SseStreamer.WriteJsonAsync(ctx.Response,
-                new ErrorResponse { Error = new() { Message = "Unknown client", Type = "client_not_found" } }, 404);
-            return;
-        }
-
-        _clients.Heartbeat(clientId, req?.ActiveSessions ?? 0);
-        var alive = _sessions.ListSessions().Count(s => s.ClientId == clientId)
-                    + (_processSessions?.CountForClient(clientId) ?? 0);
-        await SseStreamer.WriteJsonAsync(ctx.Response, new HeartbeatResponse
-        {
-            Ok = true,
-            SessionsAlive = alive
         });
     }
 

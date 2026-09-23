@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-23T13:57:58.926936+00:00
-Packages: 2  |  Types: 185
+Generated: 2026-09-23T16:28:48.365892+00:00
+Packages: 2  |  Types: 183
 
 ---
 
-## ECAssistantLLM (136 types, ~9798 LOC)
+## ECAssistantLLM (134 types, ~9712 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -56,8 +56,6 @@ Packages: 2  |  Types: 185
 - 🟡 GpuLayerGuardTests  (ECAssistantLLM)
 - 🟡 GrammarProbeTests  (ECAssistantLLM)
 - 🟡 HealthTests  (ECAssistantLLM)  deps: [TestServerFixture]
-- 🟡 HeartbeatRequest  (ECAssistantLLM)
-- 🟡 HeartbeatResponse  (ECAssistantLLM)
 - 🟡 HeartbeatTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 InferenceDefaults  (ECAssistantLLM)
 - 🟡 InferenceScheduler : IInferenceScheduler  (ECAssistantLLM)  deps: [ILogger]

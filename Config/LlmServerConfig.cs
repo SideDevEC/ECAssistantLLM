@@ -99,8 +99,6 @@ public sealed class LlmServerConfig
                 MaxVramMb = null,
                 ShutdownOnLastClient = false,
                 ShutdownGraceSec = 0,
-                HeartbeatTimeoutSec = 90,
-                HeartbeatIntervalSec = 30
             },
             Models = new List<ModelConfig>
             {

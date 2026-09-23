@@ -60,27 +60,6 @@ public sealed class ClientRegisterResponse
 }
 
 /// <summary>
-/// Heartbeat request.
-/// </summary>
-public sealed class HeartbeatRequest
-{
-    [JsonPropertyName("active_sessions")]
-    public int ActiveSessions { get; set; }
-}
-
-/// <summary>
-/// Heartbeat response.
-/// </summary>
-public sealed class HeartbeatResponse
-{
-    [JsonPropertyName("ok")]
-    public bool Ok { get; set; } = true;
-
-    [JsonPropertyName("sessions_alive")]
-    public int SessionsAlive { get; set; }
-}
-
-/// <summary>
 /// Session creation request.
 /// </summary>
 public sealed class CreateSessionRequest

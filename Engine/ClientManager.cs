@@ -15,18 +15,14 @@ public sealed class ClientManager : IClientManager, IDisposable
     private readonly SessionRegistry _sessionRegistry;
     private readonly Engine.Backends.ProcessSessionRegistry? _processSessionRegistry;
     private readonly ILogger _logger;
-    private readonly int _heartbeatTimeoutSec;
-    private readonly Timer _evictionTimer;
 
     public ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger)
     {
         _sessionRegistry = sessionRegistry ?? throw new ArgumentNullException(nameof(sessionRegistry));
         _processSessionRegistry = null;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _heartbeatTimeoutSec = config.Server.HeartbeatTimeoutSec;
-        _evictionTimer = new Timer(EvictStaleClients, null,
-            TimeSpan.FromSeconds(_heartbeatTimeoutSec),
-            TimeSpan.FromSeconds(_heartbeatTimeoutSec));
+        // Eviction DISABLED (Emre, 2026-09-23): clients live until explicit Disconnect.
+        // Idle/briefly-disconnected clients must never 401 mid-session.
     }
 
     public ClientManager(
@@ -42,11 +38,9 @@ public sealed class ClientManager : IClientManager, IDisposable
         _sessionRegistry = sessionRegistry ?? throw new ArgumentNullException(nameof(sessionRegistry));
         _processSessionRegistry = processSessionRegistry;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _heartbeatTimeoutSec = config.Server.HeartbeatTimeoutSec;
 
-        _evictionTimer = new Timer(EvictStaleClients, null,
-            TimeSpan.FromSeconds(_heartbeatTimeoutSec),
-            TimeSpan.FromSeconds(_heartbeatTimeoutSec));
+        // Eviction DISABLED (Emre, 2026-09-23): clients live until explicit Disconnect.
+        // Idle/briefly-disconnected clients must never 401 mid-session.
     }
 
     /// <summary>Registered client count.</summary>
@@ -67,15 +61,6 @@ public sealed class ClientManager : IClientManager, IDisposable
     /// <summary>
     /// Record a heartbeat for a client.
     /// </summary>
-    public bool Heartbeat(string clientId, int activeSessions)
-    {
-        if (!_clients.TryGetValue(clientId, out var record))
-            return false;
-
-        record.LastHeartbeat = DateTime.UtcNow;
-        record.ActiveSessions = activeSessions;
-        return true;
-    }
 
     /// <summary>
     /// Disconnect a client (frees all its sessions).
@@ -101,30 +86,9 @@ public sealed class ClientManager : IClientManager, IDisposable
         return _clients.ContainsKey(clientId);
     }
 
-    private void EvictStaleClients(object? state)
-    {
-        var cutoff = DateTime.UtcNow.AddSeconds(-_heartbeatTimeoutSec);
-        var stale = _clients.Where(kvp => kvp.Value.LastHeartbeat < cutoff).ToList();
-
-        foreach (var kvp in stale)
-        {
-            if (_clients.TryRemove(kvp.Key, out var record))
-            {
-                var freed = _sessionRegistry.DestroyClientSessions(kvp.Key);
-                freed += _processSessionRegistry?.DestroyClient(kvp.Key) ?? 0;
-                _logger.Warn("ClientManager",
-                    $"Evicted stale client '{record.Name}' ({kvp.Key}) — " +
-                    $"last heartbeat {record.LastHeartbeat:HH:mm:ss}, freed {freed} session(s)");
-            }
-        }
-
-        // No auto-shutdown here — eviction only frees resources. The server stays
-        // alive with the model in memory until an explicit /eca/shutdown arrives.
-    }
-
     public void Dispose()
     {
-        _evictionTimer?.Dispose();
+        // Eviction removed (2026-09-23): nothing periodic to dispose.
     }
 }
 
@@ -135,7 +99,6 @@ internal sealed class ClientRecord
     public string Name { get; }
     public string Version { get; }
     public DateTime RegisteredAt { get; }
-    public DateTime LastHeartbeat { get; set; }
     public int ActiveSessions { get; set; }
 
     public ClientRecord(string id, string name, string version, DateTime registeredAt)
@@ -144,7 +107,6 @@ internal sealed class ClientRecord
         Name = name;
         Version = version;
         RegisteredAt = registeredAt;
-        LastHeartbeat = registeredAt;
         ActiveSessions = 0;
     }
 }

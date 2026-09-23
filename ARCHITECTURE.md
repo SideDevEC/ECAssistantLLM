@@ -51,7 +51,7 @@ ECAssistantLLM/                 # 22 .cs files, ~2,537 LOC
 ├── Config/                    # Config loading + section models (leaf package)
 │    ├── LlmServerConfig.cs     # Root config: Load/TryLoad + Validate; static JsonOptions
 │    └── Models/                # Config section models
-│        ├── ServerSection.cs    # host, port, max_sessions, max_vram_mb, heartbeat_* + computed Prefix
+│        ├── ServerSection.cs    # host, port, max_sessions, max_vram_mb + computed Prefix
 │        ├── ModelConfig.cs      # id, path, gpu_layers, context_size, threads, batch_size, is_embedding, backend (auto|llamasharp|process)
 │        ├── BackendsSection.cs  # backends_root, models_root, port_min/port_max (backend child processes)
 │        ├── InferenceDefaults.cs# max_tokens, temperature, top_p, top_k, repeat_penalty
@@ -77,7 +77,7 @@ ECAssistantLLM/                 # 22 .cs files, ~2,537 LOC
 │    ├── SessionContext.cs       # Per-session InteractiveExecutor + KV cache: prefill/infer/rewind/save/reset
 │    ├── InferenceScheduler.cs   # Serialized inference via SemaphoreSlim(1,1); nested InferenceReleaser (IAsyncDisposable)
 │    ├── VramBudget.cs           # Estimated VRAM tracking + budget enforcement
-│    ├── ClientManager.cs        # Client registration, heartbeat, eviction; ClientRecord (internal) + ClientInfo record
+│    ├── ClientManager.cs        # Client registration + explicit disconnect (no eviction/heartbeat — clients live until Disconnect); ClientRecord (internal) + ClientInfo record
 │    ├── DecisionGrammar.cs      # v14 GBNF grammar — forces valid DecisionEnvelope JSON output at sampler level
 │    └── StructuredDecoder.cs    # v14 Parses grammar output → DecisionEnvelope DTO; escapes raw control chars
 │
@@ -120,7 +120,7 @@ Server/LlmHttpServer  ──►  Server/RequestRouter
    │        ▼
    │   Engine/InferenceScheduler  (SemaphoreSlim gate — one inference at a time)
    │   Engine/VramBudget          (per-session VRAM accounting)
-   │   Engine/ClientManager       (registration / heartbeat / eviction)
+   │   Engine/ClientManager       (registration / explicit disconnect)
    ▼
 Config/LlmServerConfig  (root config, validated once at startup)
 Models/  (DTOs shared by Server + Config)
@@ -142,7 +142,7 @@ for `NullLogger<T>` used to silence LLamaSharp's own logging). The HTTP layer ad
 | `SessionContext` | Per-session `InteractiveExecutor` + `LLamaContext` (own KV cache); `PrefillAsync`, `InferAsync` (streaming), `SaveState`, `RewindAsync`, `Reset`; estimates token count + VRAM |
 | `InferenceScheduler` | Serializes all inference via `SemaphoreSlim(1,1)` FIFO; `AcquireAsync` returns a disposable `InferenceReleaser` (nested, `IAsyncDisposable`) |
 | `VramBudget` | Lock-guarded estimated-VRAM accounting; `TryReserve`/`Release`; `null` max = unlimited |
-| `ClientManager` | Client registration (UUID id), heartbeat recording, disconnect (frees all client sessions), and a `Timer`-driven eviction of stale clients |
+| `ClientManager` | Client registration (UUID id) + explicit disconnect (frees all client sessions). No heartbeat/eviction — clients live until Disconnect |
 | `PromptCacheSession` | Persistent warm prompt-cache per model using only supported `SaveState`/`LoadState` snapshots on fresh executors. Reuse paths: growth (suffix decode) → stable-template checkpoint → cold. Runs only when `RequestRouter.EnableWarmPromptCache = true` |
 
 ### Engine/Backends (process backend — ternary/external models)
@@ -200,7 +200,6 @@ All requests that touch a session carry an `X-Client-Id` header. JSON is camelCa
 |---|---|---|
 | GET | `/eca/health` | Health: status, version, loaded models, session/client counts, uptime |
 | POST | `/eca/clients` | Register a client → returns `client_id` (UUID) + server version |
-| POST | `/eca/clients/{id}/heartbeat` | Record heartbeat (with `active_sessions`); returns live session count |
 | DELETE | `/eca/clients/{id}` | Disconnect client → frees all its sessions (in-process AND process-backed) |
 | POST | `/eca/sessions` | Create a session (own KV cache); checks `MaxSessions` + VRAM budget (503 if over) |
 | POST | `/eca/sessions/{id}/prefill` | Prefill a static prefix into the session's KV cache |
@@ -224,10 +223,9 @@ KV cache, fresh each call.
   All subsequent requests send it in the `X-Client-Id` header.
 - **Session namespacing:** sessions are keyed `{clientId}:{sessionId}` in a
   `ConcurrentDictionary`, so two clients can reuse the same `session_id` without collision.
-- **Heartbeat + eviction:** clients send `POST /eca/clients/{id}/heartbeat` on
-  `heartbeat_interval_sec` (default 30s). A `Timer` in `ClientManager` runs every
-  `heartbeat_timeout_sec` (default 90s) and evicts any client whose last heartbeat is stale,
-  freeing all of its sessions.
+- **Client lifetime (2026-09-23):** no heartbeat, no eviction. Clients stay registered until
+  an explicit `DELETE /eca/clients/{id}` (Disconnect). Eviction was removed because idle or
+  briefly-disconnected clients must never 401 mid-session.
 - **VRAM budget:** `VramBudget` accumulates each session's `EstimatedVramMb` (approx
   `2 · layers · ctx · dim · sizeof(half)`). `POST /eca/sessions` calls `TryReserve`; on
   failure it rolls back the session and returns **503 `vram_exceeded`**. `null`

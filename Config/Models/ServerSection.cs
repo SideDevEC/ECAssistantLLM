@@ -38,11 +38,6 @@ public sealed class ServerSection
     [JsonPropertyName("shutdown_grace_sec")]
     public int ShutdownGraceSec { get; set; } = 0;
 
-    [JsonPropertyName("heartbeat_timeout_sec")]
-    public int HeartbeatTimeoutSec { get; set; } = 90;
-
-    [JsonPropertyName("heartbeat_interval_sec")]
-    public int HeartbeatIntervalSec { get; set; } = 30;
 
     /// <summary>
     /// Restrictive root directory for runtime model loads via /eca/models/load.
