@@ -135,7 +135,12 @@ public sealed class ChatMessageContentConverter : JsonConverter<List<ChatMessage
                 switch (prop)
                 {
                     case "role":
-                        msg.Role = reader.GetString() ?? "user";
+                        // v-fix: a non-string role (number/bool) made Utf8JsonReader.GetString()
+                        // throw InvalidOperationException → 500 instead of a 400-style rejection.
+                        if (reader.TokenType == JsonTokenType.String)
+                            msg.Role = reader.GetString() ?? "user";
+                        else
+                            reader.Skip();
                         break;
                     case "content":
                         if (reader.TokenType == JsonTokenType.String)
@@ -181,7 +186,7 @@ public sealed class ChatMessageContentConverter : JsonConverter<List<ChatMessage
                 var root = part.RootElement;
                 var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
 
-                if (type == "text" && root.TryGetProperty("text", out var txt))
+                if (type == "text" && root.TryGetProperty("text", out var txt) && txt.ValueKind == JsonValueKind.String)
                     text.Append(txt.GetString());
                 else if (type == "image_url")
                 {

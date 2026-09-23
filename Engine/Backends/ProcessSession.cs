@@ -155,6 +155,11 @@ public sealed class ProcessSession : IDisposable
 
         List<ChatMessage> appended = new();
         await _ioLock.WaitAsync(ct).ConfigureAwait(false);
+        // v-fix: the IO lock is now held for the WHOLE turn (append → stream → commit),
+        // matching the documented contract "serializes transcript mutations
+        // (SaveState/Rewind/Reset) against streaming inference". Previously the lock was
+        // released during streaming, so a concurrent Reset() could wipe the transcript
+        // mid-inference and the assistant reply was still committed afterwards.
         List<ChatMessage> snapshot;
         try
         {
@@ -162,9 +167,10 @@ public sealed class ProcessSession : IDisposable
             _history.AddRange(messages);
             appended.AddRange(messages);
         }
-        finally
+        catch
         {
             _ioLock.Release();
+            throw;
         }
 
         LastActivity = DateTime.UtcNow;
@@ -195,35 +201,27 @@ public sealed class ProcessSession : IDisposable
                 catch
                 {
                     // The turn failed — roll back the appended messages so the transcript
-                    // stays consistent for the next attempt.
-                    await _ioLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-                    try { RemoveAppended(appended, snapshot.Count); }
-                    finally { _ioLock.Release(); }
+                    // stays consistent for the next attempt. The IO lock is already held
+                    // (acquired above and kept for the whole turn) — no re-acquire here.
+                    RemoveAppended(appended, snapshot.Count);
                     throw;
                 }
 
                 replySb.Append(delta);
                 yield return delta;
             }
-        }
-        finally
-        {
-            await enumerator.DisposeAsync().ConfigureAwait(false);
-        }
 
-        var assistantReply = replySb.ToString();
+            var assistantReply = replySb.ToString();
 
-        // Commit the assistant turn to the transcript. The appended user messages stay
-        // (they are part of the conversation); only a FAILED turn rolls them back.
-        await _ioLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        try
-        {
+            // Commit the assistant turn to the transcript. The appended user messages stay
+            // (they are part of the conversation); only a FAILED turn rolls them back.
             if (!string.IsNullOrEmpty(assistantReply))
                 _history.Add(new ChatMessage { Role = "assistant", Content = assistantReply });
             if (!string.IsNullOrEmpty(_prefix)) IsPrefilled = true;
         }
         finally
         {
+            await enumerator.DisposeAsync().ConfigureAwait(false);
             _ioLock.Release();
         }
     }
@@ -390,7 +388,20 @@ public sealed class ProcessSession : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _http.Dispose();
-        _ioLock.Dispose();
+        // Bounded best-effort: avoid tearing down mid-commit — a concurrent Dispose
+        // during an in-flight inference could otherwise corrupt the child request.
+        if (!_ioLock.Wait(TimeSpan.FromSeconds(30)))
+        {
+            _logger.Warn("ProcessSession", $"[{Key}] Dispose: inference still in progress after 30s — disposing anyway");
+        }
+        try
+        {
+            _http.Dispose();
+        }
+        finally
+        {
+            _ioLock.Release();
+            _ioLock.Dispose();
+        }
     }
 }

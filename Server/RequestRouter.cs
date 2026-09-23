@@ -243,13 +243,8 @@ public sealed class RequestRouter : IRequestRouter
         // objects, structured support). Only unhandled paths keep raw 1:1 passthrough.
         if (req.SessionId == null && !req.Structured && !req.ToolsActive)
         {
-            if (_processStateless == null)
-            {
-                await SseStreamer.WriteJsonAsync(ctx.Response,
-                    new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
-                return;
-            }
-
+            // The null-state of the readonly field is re-checked after the validation
+            // branches below via the hoisted 'statelessClient' local.
             if (req.Messages.Count == 0)
             {
                 await SseStreamer.WriteJsonAsync(ctx.Response,
@@ -264,7 +259,7 @@ public sealed class RequestRouter : IRequestRouter
                     new ErrorResponse { Error = new() { Message = "grammar is not supported with stream=true", Type = "invalid_request" } }, 400);
                 return;
             }
-            var statelessClient = _processStateless;
+            var statelessClient = _processStateless; // hoisted: null-state is invalidated by awaited calls above
             if (statelessClient == null)
             {
                 await SseStreamer.WriteJsonAsync(ctx.Response,
@@ -630,8 +625,8 @@ public sealed class RequestRouter : IRequestRouter
             {
                 var envelope = StructuredDecoder.Decode(structuredSb.ToString());
                 _logger.Info("Router", $"[Structured] decoded: answer={envelope.HasAnswer}, toolcalls={envelope.ToolCalls?.Count ?? 0}");
-            _logger.Info("Router", $"[Structured] RAW OUTPUT ({structuredSb.Length} chars): {structuredSb.ToString()[..Math.Min(structuredSb.Length, 500)]}");
-            if (envelope.HasAnswer) _logger.Info("Router", $"[Structured] ANSWER TEXT: {envelope.Answer?[..Math.Min(envelope.Answer.Length, 200)]}");
+                _logger.Info("Router", $"[Structured] RAW OUTPUT ({structuredSb.Length} chars): {structuredSb.ToString()[..Math.Min(structuredSb.Length, 500)]}");
+                if (envelope.HasAnswer) _logger.Info("Router", $"[Structured] ANSWER TEXT: {envelope.Answer?[..Math.Min(envelope.Answer.Length, 200)]}");
                 await SseStreamer.WriteJsonAsync(ctx.Response, new { decision = envelope });
             }
             catch (InvalidDecisionException ex)
@@ -1470,7 +1465,12 @@ public sealed class RequestRouter : IRequestRouter
         {
             var body = System.Text.Encoding.UTF8.GetString(rawBody);
             if (!string.IsNullOrWhiteSpace(body))
-                req = System.Text.Json.JsonSerializer.Deserialize<T>(body, SseStreamer.JsonOptions);
+            {
+                // v-fix: malformed JSON previously propagated JsonException uncaught and
+                // surfaced as a generic 500 — a client error must be a 400.
+                try { req = System.Text.Json.JsonSerializer.Deserialize<T>(body, SseStreamer.JsonOptions); }
+                catch (System.Text.Json.JsonException) { req = default; }
+            }
         }
 
         if (req != null)

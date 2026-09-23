@@ -232,7 +232,13 @@ public sealed class SessionContext : IDisposable
             return false;
         }
 
-        await _ioLock.WaitAsync();
+        // v-fix: bounded wait — a wedged inference previously blocked Rewind forever
+        // (Reset uses the same bounded pattern). Surface as rewound=false instead.
+        if (!await _ioLock.WaitAsync(ResetLockTimeout))
+        {
+            _logger.Warn("SessionContext", $"[{Key}] Rewind timed out waiting for the IO lock (inference in progress?)");
+            return false;
+        }
         try
         {
             // 1. Native KV cache (llama_set_state_data) — must match the bookkeeping below.

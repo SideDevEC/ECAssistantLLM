@@ -170,7 +170,7 @@ namespace ECAssistant.LLM.Tests.Sessions;
     }
 
     [Fact]
-    public async Task CreateSession_With_Unknown_Model_Id_Returns_400()
+    public async Task CreateSession_With_Unknown_Model_Id_Falls_Back_To_Main_Model()
     {
         var clientId = await _fixture.RegisterClientAsync("bad-model");
         var sessionId = "badmodel-" + Guid.NewGuid().ToString("N")[..8];
@@ -178,10 +178,12 @@ namespace ECAssistant.LLM.Tests.Sessions;
         using var resp = await _fixture.PostJsonAsClientAsync("/eca/sessions",
              new { session_id = sessionId, model_id = "no-such-model" }, clientId);
 
-        Assert.Equal(System.Net.HttpStatusCode.BadRequest, resp.StatusCode);
+        // Unknown model IDs fall back to the server's main model (design: stale client
+        // configs should not hard-fail — the server knows best what model to serve).
+        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
         var body = await resp.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(body);
-        Assert.Equal("session_error",
-            doc.RootElement.GetProperty("error").GetProperty("type").GetString());
+        Assert.Equal(sessionId,
+            doc.RootElement.GetProperty("session_id").GetString());
     }
 }

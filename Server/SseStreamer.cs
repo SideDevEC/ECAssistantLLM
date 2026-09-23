@@ -87,7 +87,7 @@ public static class SseStreamer
         var stream = response.OutputStream;
         var chunkId = Guid.NewGuid().ToString("N");
 
-        await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)) { AutoFlush = true };
+        var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)) { AutoFlush = true };
 
         try
         {
@@ -126,6 +126,12 @@ public static class SseStreamer
             {
                 // Stream already dead (client disconnect) — nothing to report to.
             }
+        }
+        finally
+        {
+            // v-fix: a bare `await using` disposed OUTSIDE the catch blocks — a flush
+            // against a dead client stream threw HttpListenerException uncaught.
+            try { await writer.DisposeAsync(); } catch { /* client gone */ }
         }
     }
 

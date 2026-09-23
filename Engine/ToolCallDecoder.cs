@@ -36,7 +36,10 @@ public static class ToolCallDecoder
 
         var byName = tools
             .Where(t => t.IsValid)
-            .ToDictionary(t => t.Function!.Name, StringComparer.Ordinal);
+            // v-fix: duplicate tool names made ToDictionary throw ArgumentException (uncaught
+            // → HTTP 500). Treat later duplicates as unknown-name violations with a clear error.
+            .GroupBy(t => t.Function!.Name, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
         var calls = new List<ToolCall>();
         foreach (var tc in root.EnumerateArray())
