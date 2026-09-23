@@ -1,10 +1,8 @@
-# ECAssistantLLM — Architecture
+# ECAssistantLLM — Architecture (as-is)
 
-**Updated:** 2026-09-22 (CreateSession model-id fix (edce9ab): RequestRouter resolved unknown/foreign model ids to the main model for fallback but passed the RAW req.ModelId into SessionRegistry → threw → 400 on every CreateSession. With a client carrying a remote model id in local mode, ALL session creation failed, the client permanently disabled structured decoding, and tool calling degraded to context-free text streaming. Found via live e2e (curl repro: /eca/sessions with a configured model 200s; with the unconfigured cloud id 400s despite the fallback warning). Fix: pass the RESOLVED requestedModelId into _sessions.CreateSession. NOT SHIPPED — rides the next llm-server tag when Emre says go.)
-
-**Updated:** 2026-09-21 (late PM v14.9.6-wip — VERIFIED END-TO-END: live qwen35-4b grammar-forced tool_call (ECodeEditor create, enum+required enforced, typed tool_calls response, early-stop 989ms); JsonSchemaGrammarConverter rewritten two-phase (defs collected post-order, then emitted — kills emission interleaving); required props MANDATORY in grammar, optional tail; enum/key literals llama.cpp-style "\"...\""; — native OpenAI `tools` support on /v1/chat/completions: ChatCompletionRequest gains `tools`+`tool_choice`; new JsonSchemaGrammarConverter (json-schema → GBNF subset: string/enum, integer, number, boolean, object w/ required-first ordering, array) + ToolCallGrammarFactory (OpenAI tool_calls wire shape, per-tool name/args alternation) + ToolCallDecoder (parse + required-props validation); grammar-injected on in-process and process-stateless backends; response returns typed message.tool_calls with finish_reason="tool_calls"; health capability "openai-tools". ECA extensions (sessions, KV cache, structured envelope, tokenizer, embeddings, vision, lifecycle) fully untouched)
-**Updated:** 2026-09-22 (v14.10-wip — caller-supplied GBNF grammar: ChatCompletionRequest gains `grammar` (string, optional) — server injects it at the sampler (root "root") so ANY caller-defined output shape is physically enforced; RequestRouter: CreateInferenceParams routes to new CreateGrammarInferenceParams when grammar present (covers in-process session + stateless + vision); non-stream grammar path early-stops on complete JSON (TryParseCompleteJson); process-backend paths pass req.Grammar through InferAsync/InferStatelessAsync; stream+grammar rejected 400 on process backend. Motivated by EVisionStructure (Core) — schema in Core, grammar travels in the request, server stays self-contained (no vision knowledge). Live E2E: qwen35-4b vision + VisionStructureGrammar → complete schema-shaped JSON in 8.6s; compact grammar (NO ws rule) — permissive ws rules let the sampler degenerate into endless whitespace at delimiter points. Suite 249/249. NOT SHIPPED — no tag)
-**Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED
+**Updated:** 2026-09-23 · **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED (185 types)
+**History:** git log — this file describes the CURRENT state only.
+**Topical docs:** ARCHITECTURE-STRUCTURED-DECODING.md (decision grammar pipeline), ARCHITECTURE-BACKENDS.md (process backends)
 
 ## Overview
 
@@ -337,14 +335,3 @@ Section semantics:
   checkpoint/restore (PR #20700, closed unmerged; see issues #21681/#22384). Revisit when the
   fix lands upstream; until then stateless calls use `StatelessExecutor` cold path.
 
-## Changelog — 2026-09-19 (Process-Backend Sessions)
-
-- **Engine/Backends/**: `ProcessSession` + `ProcessSessionRegistry` — transcript-backed sessions for process models (Bonsai/ternary). Full client-facing parity with in-process KV sessions: `session_id`, prefill, rewind, save-state, reset, status, destroy, streaming chat. Full history re-sent per turn; the child's slot KV/prefix cache absorbs the re-prefill. Failed turns roll back appended messages. No VramBudget (KV lives in the child). Structured mode stays LlamaSharp-only (clean 400).
-- **Engine/Backends/**: `BackendPortAllocator` — child llama-server processes now take random ports from `backends.port_min`/`port_max` (default 20000–25000) instead of the fixed 8500–8599 sweep.
-- **Engine/**: `ClientManager` destroys process sessions on client disconnect/eviction. `IProcessModelHost` gained `EnsureStartedUrlAsync(modelId)`.
-- **E2E VERIFIED** against real Ternary-Bonsai-2-27B (Prism llama-server, Metal): session memory, streaming, rewind, random port range. Two bugs found & fixed (commit-path message loss; template-rejecting prefill warm-up).
-- **LDC**: API-INDEX/RELATIONSHIP-GRAPH regenerated; enforcement PASSED (148 types, 30 edges).
-
-## Changelog — 2026-08-27 (Vision Fix)
-
-- **Engine/**: `MtmdMarkerResolver` — reflection access to LLamaSharp's protected `GetMtmdMarker()` (0.27); used in `SessionContext` + `RequestRouter` (StatelessVisionInferAsync) to substitute the projector's real media marker. Vision E2E verified (Qwen2.5-VL + mmproj on :48217).
