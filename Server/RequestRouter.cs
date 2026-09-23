@@ -1745,6 +1745,7 @@ public sealed class RequestRouter : IRequestRouter
         return new LLama.Common.InferenceParams
         {
             MaxTokens = Math.Clamp(req.MaxTokens ?? 1024, 1, MaxInferenceTokens),
+            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
             SamplingPipeline = pipe,
         };
     }
@@ -1770,6 +1771,7 @@ public sealed class RequestRouter : IRequestRouter
         return new LLama.Common.InferenceParams
         {
             MaxTokens = Math.Clamp(req.MaxTokens ?? 256, 1, MaxInferenceTokens),
+            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
             SamplingPipeline = pipe,
         };
     }
