@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 135  |  LOC: 9689  |  ~5682 tokens
+Types: 136  |  LOC: 9786  |  ~5723 tokens
 
 ---
 
@@ -150,6 +150,10 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: DecisionGrammar
 > v13 GBNF grammar that forces the model's output into the decision envelope
+
+### Class: DecisionGrammarBuildTests
+> v14.12.1: DecisionGrammar.BuildGbnf — tool-name union grammar building.
+Cross-package deps: ECAssistant.LLM.Engine, Xunit
 
 ### Class: DecisionToolCall
 > v13 structured decision envelope — the grammar-forced output shape.

@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 48  |  LOC: 4248  |  ~2248 tokens
+Types: 49  |  LOC: 4326  |  ~2289 tokens
 
 ---
 
@@ -39,6 +39,10 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 Constructor:
   - ConcurrentRequestTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: DecisionGrammarBuildTests
+> v14.12.1: DecisionGrammar.BuildGbnf — tool-name union grammar building.
+Cross-package deps: ECAssistant.LLM.Engine, Xunit
 
 ### Class: EmbeddingsTests
 > Tests for the OpenAI-compatible embeddings endpoint.

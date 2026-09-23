@@ -1,0 +1,18 @@
+[09:01:55] [Info] [Main] ECAssistantLLM v14.9.5
+[09:01:56] [Info] [Main] Root: /Users/drogon/Agent/ECAssistant/ECAssistantLLM
+[09:01:56] [Info] [Main] Config: /Users/drogon/.ECAssistantLLM/llm-server.json
+[09:01:56] [Info] [Main] Server: localhost:48217
+[09:01:56] [Info] [Main] Models configured: 1
+[09:01:56] [Info] [Main] Server stays alive until explicit /eca/shutdown (no auto-shutdown)
+[09:01:56] [Info] [Main]   Model 'qwen35-4b': /Users/drogon/.ECAssistantLLM/models/Qwen3.5-4B-Q4_K_M.gguf
+[09:01:56] [Info] [Main] Loading models...
+[09:01:56] [Info] [ModelSlot] Unloaded model 'qwen35-4b'
+[09:01:56] [Error] [MultiModelHost] Failed to load model 'qwen35-4b': Model path '/Users/drogon/.ECAssistantLLM/models/Qwen3.5-4B-Q4_K_M.gguf' is outside the server root '/Users/drogon/Agent/ECAssistant/ECAssistantLLM' — refusing to load.
+[09:01:56] [Error] [Main] Failed to load models: No models could be loaded: qwen35-4b: Model path '/Users/drogon/.ECAssistantLLM/models/Qwen3.5-4B-Q4_K_M.gguf' is outside the server root '/Users/drogon/Agent/ECAssistant/ECAssistantLLM' — refusing to load.
+[09:01:56] [Warn] [Main] Server continuing WITHOUT loaded models. Fix llm-server.json paths or run the installer.
+[09:01:56] [Info] [Main] Starting server...
+[09:01:56] [Info] [Server] ECAssistantLLM listening on http://localhost:48217/
+[09:01:56] [Info] [Server] Models: 
+[09:01:56] [Info] [Server] Max sessions: 8
+[09:03:57] [Info] [Main] Process exiting...
+[09:03:57] [Info] [Server] Shutting down...

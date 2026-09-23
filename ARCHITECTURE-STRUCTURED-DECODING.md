@@ -12,13 +12,15 @@
 {"thinking": "...", "answer": "user-facing reply"}
 {"thinking": "...", "toolcalls": [{"name": "ToolName", "args": {"argname": "string value"}}]}
 ```
-Exactly one of `answer` | `toolcalls` per response. All args are strings.
+Exactly one of `answer` | `toolcalls` per response. All args are strings. The permissive `name ::= string` rule is swapped by
+`DecisionGrammar.BuildGbnf(toolNames)` for a union of JSON-quoted registered tool names when the request carries `tool_names` (v14.12.1).
 
 ## GBNF Grammar (server-side, injected at sampling)
 ```
 root ::= envelope
 envelope ::= "{" ws "\"thinking\"" ws ":" ws string ws ("," ws "\"answer\"" ws ":" ws string ws | "," ws "\"toolcalls\"" ws ":" ws "[" ws (toolcall ("," ws toolcall)*)? ws "]" ws) "}"
-toolcall ::= "{" ws "\"name\"" ws ":" ws string ws "," ws "\"args\"" ws ":" ws object ws "}"
+toolcall ::= "{" ws "\"name\"" ws ":" ws name ws "," ws "\"args\"" ws ":" ws object ws "}"
+name ::= string
 string ::= "\"" ( [^"\\] | "\\" ( ["\\bfnrt] | "u" [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F] ) )* "\""
 object ::= "{" ws (string ":" ws string ("," ws string ":" ws string)*)? ws "}"
 ws ::= [ \t\n]*

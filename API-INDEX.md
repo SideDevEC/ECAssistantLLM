@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-22T06:30:51.218867+00:00
-Packages: 2  |  Types: 183
+Generated: 2026-09-23T07:29:44.320292+00:00
+Packages: 2  |  Types: 185
 
 ---
 
-## ECAssistantLLM (135 types, ~9689 LOC)
+## ECAssistantLLM (136 types, ~9786 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -40,6 +40,7 @@ Packages: 2  |  Types: 183
 - 🟡 CreateSessionRequest  (ECAssistantLLM)
 - 🟡 DecisionEnvelope  (ECAssistantLLM)
 - 🟡 DecisionGrammar  (ECAssistantLLM)
+- 🟡 DecisionGrammarBuildTests  (ECAssistantLLM)
 - 🟡 DecisionToolCall  (ECAssistantLLM)
 - 🟡 EmbeddingData  (ECAssistantLLM)
 - 🟡 EmbeddingRequest  (ECAssistantLLM)
@@ -143,7 +144,7 @@ Packages: 2  |  Types: 183
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (48 types, ~4248 LOC)
+## Tests (49 types, ~4326 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -153,6 +154,7 @@ Packages: 2  |  Types: 183
 - 🟡 ClientManagementTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ClientManagerAlwaysAliveTests  (Tests)
 - 🟡 ConcurrentRequestTests  (Tests)  deps: [TestServerFixture]
+- 🟡 DecisionGrammarBuildTests  (Tests)
 - 🟡 EmbeddingsTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ErrorHandlingTests  (Tests)  deps: [TestServerFixture]
 - 🟡 GgufArchitectureReaderTests  (Tests)
