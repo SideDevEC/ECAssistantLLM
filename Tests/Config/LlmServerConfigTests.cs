@@ -127,6 +127,27 @@ public class LlmServerConfigTests : IDisposable
     }
 
     [Fact]
+    public void UbatchSize_RoundTrips_And_Defaults_To_Zero()
+    {
+        // Default 0 = LLamaSharp default (512) — no new config surface for existing files.
+        var model = new ModelConfig { Id = "m", Path = "m.gguf" };
+        Assert.Equal(0u, model.UbatchSize);
+
+        // Explicit value survives a Save/Load round trip.
+        var config = ValidConfig();
+        config.Models[0].BatchSize = 2048;
+        config.Models[0].UbatchSize = 2048;
+        var path = TempFile("ubatch.json");
+        LlmServerConfig.Save(config, path);
+
+        var (loaded, error) = LlmServerConfig.TryLoad(path);
+        Assert.Null(error);
+        Assert.NotNull(loaded);
+        Assert.Equal(2048u, loaded!.Models[0].BatchSize);
+        Assert.Equal(2048u, loaded.Models[0].UbatchSize);
+    }
+
+    [Fact]
     public void GenerateDefault_PassesValidation()
     {
         var path = TempFile("default.json");

@@ -163,7 +163,11 @@ public sealed class SessionRegistry : IDisposable
     {
         MaxTokens = defaults.MaxTokens,
         AntiPrompts = new[] { "</s>", "User:", "### User" },
-        OverflowStrategy = ContextOverflowStrategy.TruncateAndReprefill,
+        // v15 audit fix (2026-09-24): TruncateAndReprefill THROWS on shift-incapable
+        // models (Qwen3.5 — J2 lesson) mid-prefill, where the router's ThrowException
+        // guards never run. Throw here too so the overflow surfaces as a typed
+        // ContextOverflowed → recovery path (413 + reset), matching the v15 doctrine.
+        OverflowStrategy = ContextOverflowStrategy.ThrowException,
         SamplingPipeline = new DefaultSamplingPipeline
         {
             Temperature = defaults.Temperature,

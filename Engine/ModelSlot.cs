@@ -202,7 +202,29 @@ public sealed class ModelSlot : IDisposable
         };
 
         if (config.BatchSize > 0)
+        {
+            // v15: explicit ubatch control. llama.cpp requires batch == ubatch for
+            // non-causal (embedding) models — the v15 batch=1024 class default broke
+            // embedding loads ("batch size must be equal to ubatch size").
+            // Reconciliation rules:
+            //   chat model:       batch as configured; ubatch = config.UbatchSize if set,
+            //                     else LLamaSharp default 512 (causal models tolerate batch > ubatch)
+            //   embedding model:  ubatch is FORCED to batch (config.UbatchSize, if set,
+            //                     must match — warn otherwise) so custom embedding batch
+            //                     sizes load instead of throwing
             mp.BatchSize = config.BatchSize;
+
+            if (config.IsEmbedding)
+            {
+                if (config.UbatchSize > 0 && config.UbatchSize != config.BatchSize)
+                    System.Console.Error.WriteLine($"[ModelSlot] [{config.Id}] ubatch_size={config.UbatchSize} != batch_size={config.BatchSize} on an embedding model — forcing ubatch = batch (llama.cpp requires batch == ubatch for non-causal models).");
+                mp.UBatchSize = config.BatchSize;
+            }
+            else if (config.UbatchSize > 0)
+            {
+                mp.UBatchSize = config.UbatchSize;
+            }
+        }
 
         // KV cache quantization: q8_0 halves KV memory vs f16 with negligible quality
         // loss. Chat models default to q8_0; embedding models keep the model default.

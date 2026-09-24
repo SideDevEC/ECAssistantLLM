@@ -99,7 +99,6 @@ internal sealed class ClientRecord
     public string Name { get; }
     public string Version { get; }
     public DateTime RegisteredAt { get; }
-    public int ActiveSessions { get; set; }
 
     public ClientRecord(string id, string name, string version, DateTime registeredAt)
     {
@@ -107,6 +106,5 @@ internal sealed class ClientRecord
         Name = name;
         Version = version;
         RegisteredAt = registeredAt;
-        ActiveSessions = 0;
     }
 }

@@ -25,9 +25,19 @@ public sealed class ModelConfig
     [JsonPropertyName("threads")]
     public int Threads { get; set; } = -1;
 
-    /// <summary>Batch size for inference. 0 = LLamaSharp default (512).</summary>
+    /// <summary>Batch size for inference (logical batch, n_batch). 0 = LLamaSharp
+    /// default (512). Chat models tolerate batch > ubatch (llama.cpp splits into
+    /// micro-batches); embedding (non-causal) models REQUIRE batch == ubatch —
+    /// see UbatchSize and ModelSlot.CreateModelParams for the reconciliation rules.</summary>
     [JsonPropertyName("batch_size")]
     public uint BatchSize { get; set; } = 1024;
+
+    /// <summary>Physical micro-batch size (n_ubatch). 0 = LLamaSharp default (512).
+    /// Non-causal (embedding) models require ubatch == batch; when 0 and batch is
+    /// set, ModelSlot auto-mirrors ubatch to batch for embedding models so custom
+    /// embedding batch sizes load instead of throwing.</summary>
+    [JsonPropertyName("ubatch_size")]
+    public uint UbatchSize { get; set; } = 0;
 
     /// <summary>
     /// KV cache quantization: "q8_0" (default — halves KV memory, negligible quality

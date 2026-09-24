@@ -112,12 +112,18 @@ public sealed class LlmHttpServer : IDisposable
             _ = Task.Run(async () =>
             {
                 var gateAcquired = false;
+                // Per-request CTS: linked to the run lifetime and cancelled when the request
+                // ends abnormally (client disconnect, disposed response). Without it, a
+                // generation task whose consuming `await foreach` was abandoned by an
+                // exception keeps sampling to max_tokens on a dead connection — the server
+                // sat at 99% CPU for minutes after a broken pipe (observed 2026-09-24, J2 e2e).
+                using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(runCts.Token);
                 try
                 {
                     await _requestGate.WaitAsync(runCts.Token);
                     gateAcquired = true;
 
-                    await _router.RouteAsync(ctx, cts.Token);
+                    await _router.RouteAsync(ctx, requestCts.Token);
                 }
                 catch (System.Text.Json.JsonException)
                 {
@@ -136,6 +142,12 @@ public sealed class LlmHttpServer : IDisposable
                     // and disposed-response races during shutdown.
                     if (!IsClientDisconnect(ex) && ex is not ObjectDisposedException)
                         _logger.Error("Server", $"Unhandled error: {ex.Message}");
+
+                    // Client went away mid-request: fire the per-request token so any
+                    // still-running inference (LLamaSharp eval loop) observes cancellation
+                    // and stops burning CPU on a connection nobody is reading.
+                    if (IsClientDisconnect(ex) || ex is ObjectDisposedException)
+                        requestCts.Cancel();
 
                      // SAFETY NET — context overflow that escaped every per-path guard.
                      // Shift-incapable models throw on ANY KV touch (prefill, decode, add_text);
@@ -162,6 +174,10 @@ public sealed class LlmHttpServer : IDisposable
                 }
                 finally
                 {
+                    // Request finished (any path): make sure nothing detached keeps running.
+                    // Safe after normal completion — the generation loop already returned.
+                    requestCts.Cancel();
+
                     // Release only what was actually acquired — never a slot we don't hold.
                     if (gateAcquired)
                         _requestGate.Release();

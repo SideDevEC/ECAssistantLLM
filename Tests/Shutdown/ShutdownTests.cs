@@ -35,28 +35,6 @@ namespace ECAssistant.LLM.Tests.Shutdown;
     }
 
     [Fact]
-    public async Task Shutdown_Disconnects_Calling_Client()
-    {
-        var keepAlive = await _fixture.RegisterClientAsync("shutdown-keepalive-2");
-        var clientId = await _fixture.RegisterClientAsync("shutdown-disconnect");
-
-        // Verify client exists via heartbeat
-        var hbBefore = await _fixture.PostJsonAsClientAsync(
-            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, clientId);
-        Assert.Equal(HttpStatusCode.OK, hbBefore.StatusCode);
-        hbBefore.Dispose();
-
-        // Send shutdown for this client
-        using var resp = await _fixture.PostJsonAsClientAsync("/eca/shutdown", new { }, clientId);
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-
-        // Client should now be disconnected — heartbeat returns 401 (client no longer registered)
-        using var hbAfter = await _fixture.PostJsonAsClientAsync(
-            $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 0 }, clientId);
-        Assert.Equal(HttpStatusCode.Unauthorized, hbAfter.StatusCode);
-    }
-
-    [Fact]
     public async Task Shutdown_With_No_Client_Header_Returns_401()
     {
         // No registered X-Client-Id — /eca/shutdown requires authentication.

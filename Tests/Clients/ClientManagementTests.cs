@@ -4,8 +4,10 @@ using ECAssistant.LLM.Tests.Fixtures;
 namespace ECAssistant.LLM.Tests.Clients;
 
 /// <summary>
-/// Tests for client registration, heartbeat and disconnect
-/// (POST /eca/clients, POST /eca/clients/{id}/heartbeat, DELETE /eca/clients/{id}).
+/// Tests for client registration and disconnect
+/// (POST /eca/clients, DELETE /eca/clients/{id}).
+/// The heartbeat endpoint was REMOVED (Emre 2026-09-23, no client eviction) —
+/// heartbeat tests deleted with it (audit 2026-09-24); they 404'ed forever.
 /// </summary>
 [Collection("Server")]
 [Trait("Category","E2E")]
@@ -63,32 +65,6 @@ namespace ECAssistant.LLM.Tests.Clients;
         using var doc = JsonDocument.Parse(body);
         Assert.Equal("invalid_request",
             doc.RootElement.GetProperty("error").GetProperty("type").GetString());
-    }
-
-    [Fact]
-    public async Task Heartbeat_With_Valid_Client_Returns_Ok_True()
-    {
-        var clientId = await _fixture.RegisterClientAsync("heartbeat-client");
-
-        using var resp = await _fixture.PostJsonAsClientAsync(
-             $"/eca/clients/{clientId}/heartbeat", new { active_sessions = 1 }, clientId);
-
-        Assert.Equal(System.Net.HttpStatusCode.OK, resp.StatusCode);
-        var body = await resp.Content.ReadAsStringAsync();
-        using var doc = JsonDocument.Parse(body);
-        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-    }
-
-    [Fact]
-    public async Task Heartbeat_With_Unknown_Client_Returns_403()
-    {
-        // Security: a valid client cannot operate on another client's id → 403 Forbidden.
-        var validHeader = await _fixture.RegisterClientAsync("hb-unknown-header");
-        using var resp = await _fixture.PostJsonAsClientAsync(
-             "/eca/clients/00000000000000000000000000000000/heartbeat",
-             new { active_sessions = 0 }, validHeader);
-
-        Assert.Equal(System.Net.HttpStatusCode.Forbidden, resp.StatusCode);
     }
 
     [Fact]
