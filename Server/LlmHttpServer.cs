@@ -136,6 +136,22 @@ public sealed class LlmHttpServer : IDisposable
                     // and disposed-response races during shutdown.
                     if (!IsClientDisconnect(ex) && ex is not ObjectDisposedException)
                         _logger.Error("Server", $"Unhandled error: {ex.Message}");
+
+                     // SAFETY NET — context overflow that escaped every per-path guard.
+                     // Shift-incapable models throw on ANY KV touch (prefill, decode, add_text);
+                     // one unguarded path would surface as a bare 500 and kill the session. Reset
+                     // ALL sessions so the next request re-prefills from scratch; return typed 413.
+                    if (IsContextOverflowMessage(ex))
+                        {
+                           _router.ResetAllSessionsForOverflow();
+                         try
+                             {
+                             await SseStreamer.WriteJsonAsync(ctx.Response,
+                                 new ErrorResponse { Error = new() { Message = "Context overflowed — server KV cache reset; re-prefill and retry.", Type = "context_overflow" } }, 413);
+                             }
+                         catch { /* response may already be streaming */ }
+                        return;
+                        }
                     try
                     {
                         await SseStreamer.WriteJsonAsync(ctx.Response,
@@ -157,21 +173,32 @@ public sealed class LlmHttpServer : IDisposable
         _logger.Info("Server", "Shutting down...");
     }
 
-    /// <summary>
-    /// True when the exception is an HttpListenerException caused by the client
-    /// disconnecting mid-response. Detected via the Win32 error code, not the
-    /// (locale-dependent) exception message.
-    /// </summary>
+     /// <summary>
+     /// True when the exception is an HttpListenerException caused by the client
+     /// disconnecting mid-response. Detected via the Win32 error code, not the
+     /// (locale-dependent) exception message.
+     /// </summary>
     private static bool IsClientDisconnect(Exception ex)
-    {
+         {
         if (ex is not HttpListenerException hle)
             return false;
 
-        // Win32 error codes indicating client-side disconnect / broken pipe:
-        // 32 pipe not connected, 109 broken pipe, 232 no data, 995 operation aborted,
-        // 12002 internet timeout, 1229 connection invalid, 1236 connection aborted.
+         // Win32 error codes indicating client-side disconnect / broken pipe:
+         // 32 pipe not connected, 109 broken pipe, 232 no data, 995 operation aborted,
+         // 12002 internet timeout, 1229 connection invalid, 1236 connection aborted.
         return hle.ErrorCode is 32 or 109 or 232 or 995 or 12002 or 1229 or 1236;
-    }
+         }
+
+     /// <summary>True when an exception message signals a llama.cpp context overflow
+     /// (shift-incapable models throw instead of truncating). Used by the top-level safety net.</summary>
+    private static bool IsContextOverflowMessage(Exception ex)
+         {
+            var msg = ex.Message ?? "";
+            for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+                msg += " " + (inner.Message ?? "");
+            return msg.Contains("Context overflowed", StringComparison.OrdinalIgnoreCase) ||
+                   msg.Contains("native memory shifting", StringComparison.OrdinalIgnoreCase);
+         }
 
     public void Dispose()
     {

@@ -103,6 +103,17 @@ public sealed class ProcessSessionRegistry : IDisposable
     public int CountForClient(string clientId)
         => _sessions.Values.Count(s => s.ClientId == clientId);
 
+       /// <summary>Reset every live process session after a context overflow (safety net).</summary>
+    public int ResetAllForOverflow()
+         {
+            var count = 0;
+            foreach (var s in _sessions.Values)
+                try { s.Reset(); count++; } catch { }
+             if (count > 0)
+                  _logger.Warn("ProcessSessionRegistry", $"Reset {count} process session(s) after context overflow.");
+            return count;
+          }
+
     private static HttpClient CreateDefaultHttpClient() => new()
     {
         Timeout = Timeout.InfiniteTimeSpan // streamed inference stays open as long as it needs

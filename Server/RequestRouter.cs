@@ -557,6 +557,10 @@ public sealed class RequestRouter : IRequestRouter
         }
         var prompt = BuildPromptFromMessages(templateSlot, req.Messages);
         var inferenceParams = CreateInferenceParams(req);
+        // v15: clamp generation length to the session's REMAINING context so a
+        // single oversized turn can't run past the wall on shift-incapable models
+        // (the executor throws ContextOverflowed when it tries to truncate in place).
+        ClampToSessionHeadroom(session, inferenceParams, structured: false);
 
         // Vision: collect image payloads from all messages (markers are already in Content).
         var images = req.Messages.Where(m => m.HasImages).SelectMany(m => m.Images).Select(i => i.Data).ToList();
@@ -592,6 +596,8 @@ public sealed class RequestRouter : IRequestRouter
             var structuredSw = System.Diagnostics.Stopwatch.StartNew();
             _logger.Info("Router", $"[Structured] generation start (session={req.SessionId ?? "stateless"}, max_tokens={req.MaxTokens})");
             var structuredParams = CreateStructuredInferenceParams(req);
+            // v15: same headroom clamp for the structured session path (see below).
+            if (session != null) ClampToSessionHeadroom(session, structuredParams, structured: true);
             var structuredSb = new StringBuilder();
             var earlyStop = false;
             try
@@ -656,6 +662,10 @@ public sealed class RequestRouter : IRequestRouter
 
         if (req.Stream)
         {
+            // v15: overflow-guarded — shift-incapable models throw on ANY KV touch;
+            // without this catch the failure surfaces as a bare 500 and the session dies.
+            try
+            {
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
@@ -667,10 +677,18 @@ public sealed class RequestRouter : IRequestRouter
             }
 
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
+            }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                RecoverFromContextOverflow(session);
+                await WriteContextOverflowResponseAsync(ctx);
+            }
         }
         else
         {
             var sb = new StringBuilder();
+            try
+            {
             if (session != null)
             {
                 await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images), ct))
@@ -686,6 +704,13 @@ public sealed class RequestRouter : IRequestRouter
                     sb.Append(token);
                     if (req.Grammar != null && TryParseCompleteJson(sb.ToString())) break;
                 }
+            }
+            }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                RecoverFromContextOverflow(session);
+                await WriteContextOverflowResponseAsync(ctx);
+                return;
             }
 
             var response = new
@@ -747,11 +772,16 @@ public sealed class RequestRouter : IRequestRouter
         var prompt = req.Prompt;
 
         var inferenceParams = CreateInferenceParams(req);
+        // v15: same headroom clamp for /v1/completions session requests.
+        ClampToSessionHeadroom(session, inferenceParams, structured: false);
 
         await using var gate = await _scheduler.AcquireAsync(ct);
 
         if (req.Stream)
         {
+            // v15: overflow-guarded (same rationale as the chat path).
+            try
+            {
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
@@ -763,11 +793,18 @@ public sealed class RequestRouter : IRequestRouter
             }
 
             await SseStreamer.StreamCompletionAsync(ctx.Response, tokenStream, req.Model, ct);
+            }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                RecoverFromContextOverflow(session);
+                await WriteContextOverflowResponseAsync(ctx);
+            }
         }
         else
         {
             var sb = new StringBuilder();
-
+            try
+            {
             if (session != null)
             {
                 await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct), ct))
@@ -777,6 +814,13 @@ public sealed class RequestRouter : IRequestRouter
             {
                 await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(slot, prompt, inferenceParams, images: null, ct), ct))
                     sb.Append(token);
+            }
+            }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                RecoverFromContextOverflow(session);
+                await WriteContextOverflowResponseAsync(ctx);
+                return;
             }
 
             var response = new CompletionResponse
@@ -1585,7 +1629,9 @@ public sealed class RequestRouter : IRequestRouter
         return new LLama.Common.InferenceParams
         {
             MaxTokens = Math.Clamp(maxTokens ?? 512, 1, MaxInferenceTokens),
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
+            // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
+            // shift-incapable models; our server-side overflow recovery is the truncation path.
+            OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
             SamplingPipeline = pipe
         };
     }
@@ -1612,6 +1658,35 @@ public sealed class RequestRouter : IRequestRouter
     /// <summary>Server-side upper bound for client-supplied max_tokens. Prevents a
     /// single request from pinning the model generating far beyond any usable answer.</summary>
     internal const int MaxInferenceTokens = 32768;
+
+    /// <summary>
+    /// v15: Clamp a SESSION request's MaxTokens to the KV cache's remaining headroom
+    /// (ContextSize − ApproxTokenCount − 16-token framing slack). Shift-incapable
+    /// models (Qwen 2D-RoPE — MemoryCanShift=false) physically cannot truncate the
+    /// KV cache in place, so any generation that runs past the wall throws
+    /// ContextOverflowed and destroys the session. The clamp bounds the worst case a
+    /// single turn can add; it cannot fix an already-full cache — Core's compaction
+    /// handles that. Statelessness (session==null) and embedding models are skipped.
+    /// Stateless helpers (decompose/planner/summary) arrive with SessionId=null after
+    /// the v15 Core fix, so they never hit this path — by design.
+    /// </summary>
+    private void ClampToSessionHeadroom(SessionContext? session, LLama.Common.InferenceParams inferenceParams, bool structured)
+    {
+        if (session == null) return;
+        try
+        {
+            var used = session.ApproxTokenCount;
+            var headroom = (int)session.ContextSize - used - 16;
+            if (headroom < 1) return; // cache already full — recovery handles it; don't zero-out generation
+            if (session.ContextSize > 0 && inferenceParams.MaxTokens > headroom)
+            {
+                var before = inferenceParams.MaxTokens;
+                inferenceParams.MaxTokens = headroom;
+                _logger.Warn("Router", $"[Headroom] session {session.SessionId} max_tokens {before} → {headroom} (ctx {session.ContextSize}, used ~{used}{(structured ? ", structured" : "")})");
+            }
+        }
+        catch { /* headroom clamp is best-effort */ }
+    }
 
     /// <summary>
     /// v14.7: Check if the accumulated output is a complete, valid JSON decision envelope.
@@ -1706,6 +1781,8 @@ public sealed class RequestRouter : IRequestRouter
         var sb = new StringBuilder();
         var earlyStop = false;
         var toolsParams = CreateToolsInferenceParams(req);
+        // v15: same headroom clamp for native-tools session requests.
+        if (session != null) ClampToSessionHeadroom(session, toolsParams, structured: true);
         try
         {
         if (session != null)
@@ -1787,6 +1864,15 @@ public sealed class RequestRouter : IRequestRouter
 
     /// <summary>True when the exception is a KV context overflow. Models without native
     /// memory shifting cannot satisfy TruncateAndReprefill in place and throw instead.</summary>
+      /// <summary>Safety net: reset every live session (in-process + process-backed) after a
+      /// context overflow that escaped the per-request guards. Called from the server's top-level
+      /// handler so no unguarded path can leave a wedged KV cache behind.</summary>
+    public void ResetAllSessionsForOverflow()
+        {
+            try { _sessions.ResetAllForOverflow(); } catch { }
+            try { _processSessions?.ResetAllForOverflow(); } catch { }
+         }
+
     private static bool IsContextOverflow(Exception ex) =>
         ex.Message.Contains("Context overflowed", StringComparison.OrdinalIgnoreCase) ||
         ex.Message.Contains("native memory shifting", StringComparison.OrdinalIgnoreCase);
@@ -1850,7 +1936,9 @@ public sealed class RequestRouter : IRequestRouter
         return new LLama.Common.InferenceParams
         {
             MaxTokens = Math.Clamp(req.MaxTokens ?? 1024, 1, MaxInferenceTokens),
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
+            // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
+            // shift-incapable models; our server-side overflow recovery is the truncation path.
+            OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
             SamplingPipeline = pipe,
         };
     }
@@ -1876,7 +1964,9 @@ public sealed class RequestRouter : IRequestRouter
         return new LLama.Common.InferenceParams
         {
             MaxTokens = Math.Clamp(req.MaxTokens ?? 256, 1, MaxInferenceTokens),
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
+            // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
+            // shift-incapable models; our server-side overflow recovery is the truncation path.
+            OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
             SamplingPipeline = pipe,
         };
     }
@@ -1906,7 +1996,9 @@ public sealed class RequestRouter : IRequestRouter
             // Server-side clamp: rejects runaway/zero/negative client values.
             MaxTokens = Math.Clamp(maxTokens ?? 512, 1, MaxInferenceTokens),
             AntiPrompts = stop?.ToArray() ?? new[] { "</s>", "User:", "### User" },
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
+            // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
+            // shift-incapable models; our server-side overflow recovery is the truncation path.
+            OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
             SamplingPipeline = pipe
         };
     }

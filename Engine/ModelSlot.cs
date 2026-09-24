@@ -20,8 +20,16 @@ public sealed class ModelSlot : IDisposable
     /// <summary>Unique model ID (used in OpenAI "model" field).</summary>
     public string Id { get; }
 
-    /// <summary>Hard context floor for chat models (v15). Nothing runs below 32k.</summary>
-    public const uint MinChatContextSize = 32768;
+    /// <summary>Hard context floor for chat models (v15). Nothing runs below 32k by default;
+    /// override for tests/labs via ECA_MIN_CONTEXT env var (tokens, 0 disables the floor).</summary>
+    public static uint MinChatContextSize { get; } = LoadFloor();
+
+    // Reads ECA_MIN_CONTEXT once. Invalid values fall back to the 32768 default.
+    private static uint LoadFloor()
+     {
+        var raw = Environment.GetEnvironmentVariable("ECA_MIN_CONTEXT");
+        return uint.TryParse(raw, out var v) ? v : 32768u;
+     }
 
     /// <summary>Config this slot was created from.</summary>
     public ModelConfig Config { get; }

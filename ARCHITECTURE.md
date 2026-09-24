@@ -1,6 +1,7 @@
 # ECAssistantLLM — Architecture (as-is)
 
 **Updated:** 2026-09-24 · **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED (183 types)
+**Addendum 2026-09-24 (v15, 16k-compaction fix):** (1) `SessionId=null` on a request is now a REAL stateless signal end-to-end — Core's `HttpStreamingEngine` no longer falls back to the engine's default session (legacy `?? _defaultSessionId` leaked decompose/planner/summary prompts into the MAIN session's KV cache); omitted `session_id` → server `StatelessExecutor` cold path. (2) Server-side headroom clamp (`RequestRouter.ClampToSessionHeadroom`): session requests get `max_tokens` clamped to `ContextSize − ApproxTokenCount − 16` on all four session paths (structured, plain chat, /v1/completions, native tools) — a single oversized turn can no longer run past the wall on shift-incapable models (`MemoryCanShift=false` throws on in-place truncation); overflow recovery (typed 413 + `ResetAllForOverflow` safety net) handles the rest.
 **History:** git log — this file describes the CURRENT state only.
 **Topical docs:** ARCHITECTURE-STRUCTURED-DECODING.md (decision grammar pipeline), ARCHITECTURE-BACKENDS.md (process backends)
 
@@ -168,7 +169,7 @@ in-process KV sessions. Structured mode (grammar-enforced) stays LlamaSharp-only
 | Component | Purpose |
 |---|---|
 | `LlmHttpServer` | `HttpListener` accept loop; spawns a `Task` per request → `RequestRouter`; owns `IDisposable` teardown order |
-| `RequestRouter` | Routes by path+method to OpenAI and `/eca/*` handlers; validates `X-Client-Id`; builds prompts/`InferenceParams`; runs stateless inference for session-less requests |
+| `RequestRouter` | Routes by path+method to OpenAI and `/eca/*` handlers; validates `X-Client-Id`; builds prompts/`InferenceParams`; runs stateless inference for session-less requests; v15 `ClampToSessionHeadroom` bounds session generation to remaining KV headroom |
 | `SseStreamer` | Stateless helper: `StreamAsync` (chat SSE chunks + `[DONE]`), `StreamCompletionAsync` (completion SSE chunks), `WriteJsonAsync`, `ReadJsonAsync<T>` |
 
 ### Root / Config
@@ -298,7 +299,7 @@ Section semantics:
 4. **Client connect** — Core `POST /eca/clients` → UUID `client_id`; client starts a heartbeat timer.
 5. **Session creation** — Core `POST /eca/sessions` with `session_id` (+ optional `model_id`) → `SessionRegistry.CreateSession` builds a `SessionContext` (own `LLamaContext`/KV cache), guarded by `MaxSessions` and `VramBudget.TryReserve` (503 on over-budget).
 6. **Prefill** — `POST /eca/sessions/{id}/prefill` caches the static prefix (system prompt + tools) into the KV cache; 120s internal timeout.
-7. **Inference** — `POST /v1/chat/completions` with `session_id` acquires the scheduler gate and streams tokens via SSE (or returns a full JSON body when `stream:false`). No `session_id` → stateless executor.
+7. **Inference** — `POST /v1/chat/completions` with `session_id` acquires the scheduler gate and streams tokens via SSE (or returns a full JSON body when `stream:false`). No `session_id` → stateless executor. v15: session requests get `max_tokens` clamped to remaining KV headroom (`ClampToSessionHeadroom`), so one turn cannot exceed the context wall on shift-incapable models.
 8. **Turn management** — after each turn Core may `POST /eca/sessions/{id}/save-state` then `/rewind` to restore a clean prefilled prefix.
 9. **Heartbeat / eviction** — periodic heartbeats keep the client alive; a stale client is evicted by the `Timer`, freeing its sessions.
 10. **Shutdown** — Ctrl+C / process exit cancels the `CancellationTokenSource`; `LlmHttpServer.Dispose` stops the listener and disposes `ClientManager` → `SessionRegistry` → `MultiModelHost` (frees all KV caches + weights).

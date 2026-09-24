@@ -137,6 +137,28 @@ public sealed class SessionRegistry : IDisposable
         )).ToList();
     }
 
+     /// <summary>
+     /// Reset every live session's KV cache after a context overflow that escaped the
+     /// per-request guards. Each session recreates its context (fresh KV) and is marked
+     /// un-prefilled so the next request re-prefills from scratch. Sessions stay alive.
+     /// </summary>
+    public int ResetAllForOverflow()
+      {
+        var count = 0;
+        foreach (var session in _sessions.Values)
+           {
+            try
+               {
+                 session.Reset();
+                count++;
+               }
+            catch { /* a single bad session must not stop the rest */ }
+           }
+         if (count > 0)
+              _logger.Warn("SessionRegistry", $"Reset {count} session(s) after context overflow — next request re-prefills.");
+        return count;
+      }
+
     private static InferenceParams CreateInferenceParams(InferenceDefaults defaults) => new()
     {
         MaxTokens = defaults.MaxTokens,

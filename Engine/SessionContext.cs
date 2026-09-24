@@ -341,6 +341,14 @@ public sealed class SessionContext : IDisposable
                 while ((idx = prompt.IndexOf(mtmdMarker, idx, StringComparison.Ordinal)) >= 0) { markerCount++; idx += mtmdMarker.Length; }
                 _logger.Info("SessionContext", $"Vision: {images.Count} media queued, {markerCount} marker(s) in prompt (prompt len {prompt.Length})");
             }
+            // v15: count the INPUT prompt too — InferAsync feeds `prompt` through the
+            // executor incrementally (it lands in the KV cache), but previously only the
+            // generated output was counted. That drift made the headroom clamp blind to
+            // growing input on sessioned chat turns; a runaway generation could then fill
+            // the remaining KV mid-stream on shift-incapable models. Count both, inside
+            // the same critical section that guards Reset()/Prefill.
+            ApproxTokenCount += EstimateTokenCount(prompt);
+
             await foreach (var token in executor.InferAsync(prompt, inferenceParams ?? _inferenceParams, ct))
             {
                 sb.Append(token);
