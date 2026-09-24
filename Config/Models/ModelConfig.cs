@@ -16,16 +16,30 @@ public sealed class ModelConfig
     [JsonPropertyName("gpu_layers")]
     public int GpuLayers { get; set; } = 0;
 
+    /// <summary>Context window size in tokens. Floor: non-embedding models below
+    /// 32768 are auto-raised at load (see ModelSlot). Default 65536 ("Normal" tier).</summary>
     [JsonPropertyName("context_size")]
-    public uint ContextSize { get; set; } = 4096;
+    public uint ContextSize { get; set; } = 65536;
 
     /// <summary>-1 = auto (null in LLamaSharp).</summary>
     [JsonPropertyName("threads")]
     public int Threads { get; set; } = -1;
 
-    /// <summary>Batch size for inference. 0 = LLamaSharp default.</summary>
+    /// <summary>Batch size for inference. 0 = LLamaSharp default (512).</summary>
     [JsonPropertyName("batch_size")]
-    public uint BatchSize { get; set; } = 0;
+    public uint BatchSize { get; set; } = 1024;
+
+    /// <summary>
+    /// KV cache quantization: "q8_0" (default — halves KV memory, negligible quality
+    /// loss) or "f16". Embedding models always use the model default (f16).
+    /// </summary>
+    [JsonPropertyName("kv_cache")]
+    public string KvCache { get; set; } = "q8_0";
+
+    /// <summary>Flash attention (llama.cpp FA). Default on — faster prefill, lower KV
+    /// memory, and required for the long-context tiers to be practical.</summary>
+    [JsonPropertyName("flash_attn")]
+    public bool FlashAttn { get; set; } = true;
 
     /// <summary>True if this is an embedding model (uses LLamaEmbedder, not chat executor).</summary>
     [JsonPropertyName("is_embedding")]

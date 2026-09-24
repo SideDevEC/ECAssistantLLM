@@ -107,7 +107,8 @@ public sealed class LlmServerConfig
                     Id = "main",
                     Path = "models/qwen3-8b-q4_k_m.gguf",
                     GpuLayers = 99,
-                    ContextSize = 32768,
+                    ContextSize = 65536,
+                    BatchSize = 1024,
                     Threads = -1
                 },
                 new ModelConfig
@@ -122,7 +123,7 @@ public sealed class LlmServerConfig
             },
             Inference = new InferenceDefaults
             {
-                MaxTokens = 512,
+                MaxTokens = 8192,
                 Temperature = 0.3f,
                 TopP = 0.95f,
                 TopK = 40,

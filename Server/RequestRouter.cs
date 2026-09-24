@@ -475,14 +475,32 @@ public sealed class RequestRouter : IRequestRouter
 
         if (req.Stream)
         {
-            var tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct, grammar: req.Grammar), ct);
-            await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
+            try
+            {
+                var tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct, grammar: req.Grammar), ct);
+                await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
+            }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                RecoverFromContextOverflow(session);
+                await WriteContextOverflowResponseAsync(ctx);
+                return;
+            }
         }
         else
         {
             var sb = new StringBuilder();
-            await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct, grammar: req.Grammar), ct))
-                sb.Append(token);
+            try
+            {
+                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(req.Messages, req, ct, grammar: req.Grammar), ct))
+                    sb.Append(token);
+            }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                RecoverFromContextOverflow(session);
+                await WriteContextOverflowResponseAsync(ctx);
+                return;
+            }
 
             var response = new
             {
@@ -576,6 +594,8 @@ public sealed class RequestRouter : IRequestRouter
             var structuredParams = CreateStructuredInferenceParams(req);
             var structuredSb = new StringBuilder();
             var earlyStop = false;
+            try
+            {
             if (session != null)
             {
                 await foreach (var token in session.InferAsync(prompt, structuredParams, ct, images))
@@ -606,6 +626,13 @@ public sealed class RequestRouter : IRequestRouter
                         break;
                     }
                 }
+            }
+            }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                RecoverFromContextOverflow(session);
+                await WriteContextOverflowResponseAsync(ctx);
+                return;
             }
 
             structuredSw.Stop();
@@ -1046,13 +1073,22 @@ public sealed class RequestRouter : IRequestRouter
         var procSession = _processSessions?.Get(clientId, sessionId);
         if (procSession != null)
         {
-            var (psuccess, ptokens, pelapsedMs) = await procSession.PrefillAsync(req.Text, ct);
-            await SseStreamer.WriteJsonAsync(ctx.Response, new PrefillResponse
+            try
             {
-                Prefilled = psuccess,
-                Tokens = ptokens,
-                ElapsedMs = pelapsedMs
-            });
+                var (psuccess, ptokens, pelapsedMs) = await procSession.PrefillAsync(req.Text, ct);
+                await SseStreamer.WriteJsonAsync(ctx.Response, new PrefillResponse
+                {
+                    Prefilled = psuccess,
+                    Tokens = ptokens,
+                    ElapsedMs = pelapsedMs
+                });
+            }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                RecoverFromContextOverflow((ProcessSession?)null);
+                procSession.Reset();
+                await WriteContextOverflowResponseAsync(ctx);
+            }
             return;
         }
 
@@ -1063,13 +1099,23 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        var (success, tokens, elapsedMs) = await session.PrefillAsync(req.Text, ct);
-        await SseStreamer.WriteJsonAsync(ctx.Response, new PrefillResponse
+        try
         {
-            Prefilled = success,
-            Tokens = tokens,
-            ElapsedMs = elapsedMs
-        });
+            var (success, tokens, elapsedMs) = await session.PrefillAsync(req.Text, ct);
+            await SseStreamer.WriteJsonAsync(ctx.Response, new PrefillResponse
+            {
+                Prefilled = success,
+                Tokens = tokens,
+                ElapsedMs = elapsedMs
+            });
+        }
+        catch (Exception ex) when (IsContextOverflow(ex))
+        {
+            // Shift-incapable models throw instead of truncating. Reset the KV cache
+            // (the session itself stays alive) and tell the client to compact + retry.
+            RecoverFromContextOverflow(session);
+            await WriteContextOverflowResponseAsync(ctx);
+        }
     }
 
     private async Task HandleRewindAsync(HttpListenerContext ctx, string? clientId, string sessionId)
@@ -1660,6 +1706,8 @@ public sealed class RequestRouter : IRequestRouter
         var sb = new StringBuilder();
         var earlyStop = false;
         var toolsParams = CreateToolsInferenceParams(req);
+        try
+        {
         if (session != null)
         {
             await foreach (var token in session.InferAsync(prompt, toolsParams, ct, images))
@@ -1675,6 +1723,13 @@ public sealed class RequestRouter : IRequestRouter
                 sb.Append(token);
                 if (TryParseCompleteJson(sb.ToString())) { earlyStop = true; break; }
             }
+        }
+        }
+        catch (Exception ex) when (IsContextOverflow(ex))
+        {
+            RecoverFromContextOverflow(session);
+            await WriteContextOverflowResponseAsync(ctx);
+            return;
         }
 
         sw.Stop();
@@ -1728,6 +1783,56 @@ public sealed class RequestRouter : IRequestRouter
         if (string.IsNullOrWhiteSpace(s)) return false;
         try { using var _ = System.Text.Json.JsonDocument.Parse(s); return true; }
         catch (System.Text.Json.JsonException) { return false; }
+    }
+
+    /// <summary>True when the exception is a KV context overflow. Models without native
+    /// memory shifting cannot satisfy TruncateAndReprefill in place and throw instead.</summary>
+    private static bool IsContextOverflow(Exception ex) =>
+        ex.Message.Contains("Context overflowed", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("native memory shifting", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Overflow recovery: drop the session KV so the next request re-prefills
+    /// from scratch. For shift-incapable models this is the only way back to a usable
+    /// session — the cache cannot be truncated in place.</summary>
+    private void RecoverFromContextOverflow(SessionContext? session)
+    {
+        if (session == null) return;
+        try
+        {
+            session.Reset();
+            _logger.Warn("Router", $"[Overflow] session {session.SessionId} KV cache reset after context overflow — client should re-prefill and retry");
+        }
+        catch (Exception resetEx)
+        {
+            _logger.Error("Router", $"[Overflow] session reset failed: {resetEx.Message}");
+        }
+    }
+
+    /// <summary>Process-backend overload: transcript-backed sessions use the same Reset contract.</summary>
+    private void RecoverFromContextOverflow(ProcessSession? session)
+    {
+        if (session == null) return;
+        try
+        {
+            session.Reset();
+            _logger.Warn("Router", $"[Overflow] process session {session.Key} reset after context overflow — client should retry");
+        }
+        catch (Exception resetEx)
+        {
+            _logger.Error("Router", $"[Overflow] process session reset failed: {resetEx.Message}");
+        }
+    }
+
+    /// <summary>Typed 413 response after overflow recovery. Best-effort: mid-stream the
+    /// headers are already gone — the reset still happened, so a client retry succeeds.</summary>
+    private static async Task WriteContextOverflowResponseAsync(HttpListenerContext ctx)
+    {
+        try
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Context overflowed — server KV cache reset; re-prefill and retry.", Type = "context_overflow" } }, 413);
+        }
+        catch { /* response may already be streaming */ }
     }
 
     /// <summary>Inference params with the tool-call grammar injected at the sampler.</summary>

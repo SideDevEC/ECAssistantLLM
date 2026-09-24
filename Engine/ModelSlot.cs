@@ -20,6 +20,9 @@ public sealed class ModelSlot : IDisposable
     /// <summary>Unique model ID (used in OpenAI "model" field).</summary>
     public string Id { get; }
 
+    /// <summary>Hard context floor for chat models (v15). Nothing runs below 32k.</summary>
+    public const uint MinChatContextSize = 32768;
+
     /// <summary>Config this slot was created from.</summary>
     public ModelConfig Config { get; }
 
@@ -111,6 +114,14 @@ public sealed class ModelSlot : IDisposable
             _logger.Warn("ModelSlot", decision.Reason!);
         EffectiveGpuLayers = decision.EffectiveGpuLayers;
 
+        // v15 hard floor: no chat model runs below 32k context — small windows cause
+        // compaction churn and overflow on agent workloads. Embedding models exempt.
+        if (!Config.IsEmbedding && Config.ContextSize < MinChatContextSize)
+        {
+            _logger.Warn("ModelSlot", $"Model '{Id}' context_size {Config.ContextSize} below hard floor {MinChatContextSize} — raising to {MinChatContextSize}.");
+            Config.ContextSize = MinChatContextSize;
+        }
+
         Params = CreateModelParams(Config, resolvedPath, decision.EffectiveGpuLayers);
 
         try
@@ -179,10 +190,22 @@ public sealed class ModelSlot : IDisposable
             GpuLayerCount = Math.Clamp(effectiveGpuLayers ?? config.GpuLayers, 0, 100),
             ContextSize = config.ContextSize,
             Threads = config.Threads == -1 ? null : config.Threads,
+            FlashAttention = config.FlashAttn,
         };
 
         if (config.BatchSize > 0)
             mp.BatchSize = config.BatchSize;
+
+        // KV cache quantization: q8_0 halves KV memory vs f16 with negligible quality
+        // loss. Chat models default to q8_0; embedding models keep the model default.
+        if (!config.IsEmbedding && !string.Equals(config.KvCache, "f16", StringComparison.OrdinalIgnoreCase))
+        {
+            if (config.KvCache.Equals("q8_0", StringComparison.OrdinalIgnoreCase))
+            {
+                mp.TypeK = GGMLType.GGML_TYPE_Q8_0;
+                mp.TypeV = GGMLType.GGML_TYPE_Q8_0;
+            }
+        }
 
         if (config.IsEmbedding)
         {

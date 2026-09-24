@@ -8,7 +8,7 @@ namespace ECAssistant.LLM.Config;
 public sealed class InferenceDefaults
 {
     [JsonPropertyName("max_tokens")]
-    public int MaxTokens { get; set; } = 512;
+    public int MaxTokens { get; set; } = 8192;
 
     [JsonPropertyName("temperature")]
     public float Temperature { get; set; } = 0.3f;
