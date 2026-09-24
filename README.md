@@ -112,14 +112,14 @@ dotnet build
 ### Run
 
 ```bash
-dotnet run -- --root ~/.ECAssistantLLM
+dotnet run -- --root ~/ECALLM
 ```
 
-The server starts on `http://localhost:48217` and loads models defined in `~/.ECAssistantLLM/llm-server.json`.
+The server starts on `http://localhost:48217` and loads models defined in `~/ECALLM/llm-server.json`.
 
 ### Configuration
 
-Create `~/.ECAssistantLLM/llm-server.json`:
+Create `~/ECALLM/llm-server.json`:
 
 ```json
 {
@@ -162,7 +162,7 @@ The server ships on nuget.org for ECAssistant-flavored projects (and any project
 <PackageReference Include="ECAssistant.LLM.Server" Version="14.7.8" />
 ```
 
-The package contains the compiled server runtime as content files. NuGet places them in a `server/` directory in the consuming project's build output. The ECAssistant wizard copies these to `~/.ECAssistantLLM/server/` on first run — so nothing downloads at chat time.
+The package contains the compiled server runtime as content files. NuGet places them in a `server/` directory in the consuming project's build output. The ECAssistant wizard copies these to `~/ECALLM/server/` on first run — so nothing downloads at chat time.
 
 ### Publishing a new version
 

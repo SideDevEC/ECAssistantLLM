@@ -44,4 +44,4 @@ Thank you for your interest in contributing!
 Open a GitHub Issue with:
 - What you expected vs. what happened
 - Steps to reproduce
-- Server log excerpt (`~/.ECAssistantLLM/ecassistant-llm.log`) — **redact any sensitive paths or data first**
+- Server log excerpt (`~/ECALLM/ecassistant-llm.log`) — **redact any sensitive paths or data first**

@@ -2,7 +2,7 @@ namespace ECAssistant.LLM.Engine.Backends;
 
 /// <summary>
 /// Root-confinement guard: the server must never write outside its root directory
-/// (typically ~/.ECAssistantLLM), regardless of what an absolute path in the config
+/// (typically ~/ECALLM), regardless of what an absolute path in the config
 /// says. Paths already inside the root pass through; anything else is relocated under
 /// the root using its final path segment. Stateless utility — no mutable state.
 /// </summary>

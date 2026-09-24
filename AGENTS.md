@@ -31,9 +31,9 @@ Compact orientation for AI agents working in this repo. Humans: read README.md (
 
 ## Run & configure
 ```bash
-dotnet run -- --root ~/.ECAssistantLLM [--port 48217] [path/to/llm-server.json]
+dotnet run -- --root ~/ECALLM [--port 48217] [path/to/llm-server.json]
 ```
-Config `~/.ECAssistantLLM/llm-server.json`: `server.{host,port,shutdown_on_last_client}` · `models[]` (`id`, `path` RELATIVE to root, `gpu_layers`, `context_size`, `is_embedding`, `mmproj_path` for vision) · `inference` · `logging`.
+Config `~/ECALLM/llm-server.json`: `server.{host,port,shutdown_on_last_client}` · `models[]` (`id`, `path` RELATIVE to root, `gpu_layers`, `context_size`, `is_embedding`, `mmproj_path` for vision) · `inference` · `logging`.
 - Server refuses model paths OUTSIDE `--root` (security). Vision models ALWAYS list mmproj.
 
 ## Build & test
@@ -44,7 +44,7 @@ dotnet test                       # Tests/ — server lifecycle, chat, KV cache,
 ```
 
 ## Distribution
-- Ships as NuGet content package: consuming projects get `server/` staged into build output; the ECAssistant wizard copies it to `~/.ECAssistantLLM/server/`.
+- Ships as NuGet content package: consuming projects get `server/` staged into build output; the ECAssistant wizard copies it to `~/ECALLM/server/`.
 - Version LOCKSTEP with all ECAssistant packages (15.0.0). `ServerInstallCoordinator.RequiredServerVersion` in Core pins this — keep in sync.
 - Publish: tag `llm-server-v15.0.0` → CI → nuget.org + GitHub Packages + Release. NEVER tag without Emre's "ship it".
 
