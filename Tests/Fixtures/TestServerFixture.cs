@@ -312,7 +312,6 @@ public sealed class TestServerFixture : IAsyncLifetime
           config.Server.MaxSessions = 16;
           config.Server.MaxVramMb = null;
           config.Server.ShutdownOnLastClient = false;
-          config.Server.HeartbeatTimeoutSec = 300;
 
           return config;
          }

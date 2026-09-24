@@ -21,7 +21,6 @@ public sealed class ClientManagerAlwaysAliveTests
             {
                 Host = "127.0.0.1",
                 Port = 48999,
-                HeartbeatTimeoutSec = 90,
                 ShutdownOnLastClient = false,
                 ShutdownGraceSec = 0
             },
