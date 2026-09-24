@@ -63,6 +63,11 @@ public sealed class SessionContext : IDisposable
     /// <summary>Whether the static prefix has been prefilled.</summary>
     public bool IsPrefilled { get; private set; }
 
+    /// <summary>v15: whether a rewind snapshot exists (SaveState called since the
+    /// last reset). Diagnostic surface for KV hygiene — Core's server-truth logic
+    /// and tests can see whether a rewind would succeed without attempting it.</summary>
+    public bool HasSavedState => _savedState != null && _savedKvState != null;
+
     /// <summary>Approximate token count in the KV cache.</summary>
     public int ApproxTokenCount { get; private set; }
 
@@ -370,6 +375,57 @@ public sealed class SessionContext : IDisposable
     /// Get the LLamaContext (for tokenization).
     /// </summary>
     public LLamaContext? GetContext() => _context;
+
+    /// <summary>
+    /// v15 (Emre, 2026-09-24): KV-hygiene primitive — feed text into the cache as
+    /// PROMPT with bounded sampling. Unlike InferAsync this is not a conversation
+    /// turn and unlike PrefillAsync it is repeatable (no IsPrefilled one-shot guard)
+    /// and does not stop at the first newline. Use cases: repaired-content injection
+    /// after a rewind (envelope salvage), cache warming of injected context, steering
+    /// content placement. LLamaSharp's executor cannot sample zero tokens — the text
+    /// is fully consumed as prompt, then at most <paramref name="maxTokens"/> tokens
+    /// are sampled and DISCARDED (default 1; the stray sample is documented and
+    /// bounded — never part of any transcript or response).
+    /// </summary>
+    public async Task<(bool success, int sampledTokens, int approxTokens)> EvaluateAsync(
+        string text, int maxTokens = 1, CancellationToken ct = default)
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(SessionContext));
+        if (Executor == null)
+            return (false, 0, ApproxTokenCount);
+        if (string.IsNullOrEmpty(text))
+            return (true, 0, ApproxTokenCount);
+
+        await _ioLock.WaitAsync(ct);
+        try
+        {
+            var boundedParams = new LLama.Common.InferenceParams
+            {
+                MaxTokens = Math.Clamp(maxTokens, 1, MaxInferenceTokens),
+                OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
+            };
+            ApproxTokenCount += EstimateTokenCount(text);
+            var sampled = 0;
+            await foreach (var _ in Executor.InferAsync(text, boundedParams, ct))
+            {
+                sampled++;
+                if (sampled >= boundedParams.MaxTokens) break;
+            }
+            ApproxTokenCount += sampled;
+            return (true, sampled, ApproxTokenCount);
+        }
+        catch (Exception)
+        {
+            return (false, 0, ApproxTokenCount);
+        }
+        finally
+        {
+            _ioLock.Release();
+        }
+    }
+
+    private const int MaxInferenceTokens = 32768;
 
     private static int EstimateTokenCount(string text) => text.Length / 4; // rough: ~4 chars/token
 

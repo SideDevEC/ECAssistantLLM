@@ -175,11 +175,12 @@ public sealed class ProcessSession : IDisposable
 
         LastActivity = DateTime.UtcNow;
 
-        // Structured mode mirrors the in-process structured cap (CreateStructuredInferenceParams:
-        // clamp to 256) — envelopes are small; early-stop in the router handles the actual stop.
-        var maxTokens = grammar != null
-            ? Math.Clamp(Math.Min(request.MaxTokens ?? 256, 256), 1, 256)
-            : ClampMaxTokens(request.MaxTokens);
+        // Structured/native-tools grammar paths share the same budget rule as plain
+        // generation: request value wins, default 512, server ceiling 32768.
+        // v15 (Emre, 2026-09-24): the former hard 256 clamp truncated legitimate long
+        // answers and long tool arguments mid-generation; early-stop in the router
+        // handles the actual stop.
+        var maxTokens = ClampMaxTokens(request.MaxTokens);
         var payload = BuildChatPayload(messages, maxTokens, grammar, request);
 
         var deltas = StreamDeltasAsync(payload, ct);
@@ -298,11 +299,74 @@ public sealed class ProcessSession : IDisposable
         }
     }
 
+    /// <summary>v15 KV-hygiene primitive: feed text into the child's prompt cache
+    /// WITHOUT committing it to the transcript. Mirrors SessionContext.EvaluateAsync
+    /// semantics — the text is sent as a transient turn (max_tokens clamped, default
+    /// 1 sample, response discarded); the child's prefix cache absorbs the prefill
+    /// while our transcript stays untouched, so the next real turn's payload differs
+    /// only by the transient tail and rebuilds naturally. Also used for repaired-
+    /// content injection after a rewind when the router needs the cache warmed.</summary>
+    public async Task<(bool success, int sampledTokens)> EvaluateAsync(
+        string text, int maxTokens = 1, CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (string.IsNullOrEmpty(text)) return (true, 0);
+
+        var bounded = Math.Clamp(maxTokens, 1, 32768);
+        var transientTurn = new List<ChatMessage>
+        {
+            new() { Role = "user", Content = text }
+        };
+        var payload = BuildChatPayload(transientTurn, bounded);
+        try
+        {
+            using var response = await PostChatAsync(payload, stream: false, ct).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            _logger.Info("ProcessSession", $"[{Key}] Evaluate: fed {text.Length} chars (max_tokens={bounded}, sampled response discarded)");
+            return (response.IsSuccessStatusCode, 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn("ProcessSession", $"[{Key}] Evaluate failed: {ex.Message}");
+            return (false, 0);
+        }
+    }
+
+    /// <summary>v15: whether a rewind snapshot exists (diagnostic surface).</summary>
+    public bool HasSavedState => _savedHistoryCount >= 0;
+
     /// <summary>Removes messages appended by a failed turn, tolerating concurrent truncation.</summary>
     private void RemoveAppended(List<ChatMessage> appended, int expectedStartIndex)
     {
         var start = Math.Min(expectedStartIndex, _history.Count);
         _history.RemoveRange(start, Math.Min(appended.Count, _history.Count - start));
+    }
+
+    /// <summary>
+    /// v15 salvage support: commit a repaired assistant reply after a rewind.
+    /// Used by the router's envelope salvage — the truncated generation was rolled
+    /// back, and the repaired (closed) envelope is committed in its place so the
+    /// transcript holds a clean, well-formed example. The child's prefix cache
+    /// rebuilds naturally on the next turn (transcript-backed sessions).
+    /// </summary>
+    public bool AppendAssistantReply(string content)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (string.IsNullOrEmpty(content)) return false;
+        if (!_ioLock.Wait(TimeSpan.FromSeconds(30)))
+        {
+            _logger.Warn("ProcessSession", $"[{Key}] AppendAssistantReply timed out waiting for the IO lock");
+            return false;
+        }
+        try
+        {
+            _history.Add(new ChatMessage { Role = "assistant", Content = content });
+            return true;
+        }
+        finally
+        {
+            _ioLock.Release();
+        }
     }
 
     // ── Transport ───────────────────────────────────────

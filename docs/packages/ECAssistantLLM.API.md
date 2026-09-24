@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 134  |  LOC: 9712  |  ~5679 tokens
+Types: 138  |  LOC: 10426  |  ~5790 tokens
 
 ---
 
@@ -98,7 +98,7 @@ Cross-package deps: ECAssistant.LLM.Models, Xunit
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
 
 ### Class: ClientManagementTests
-> Tests for client registration, heartbeat and disconnect
+> Tests for client registration and disconnect
 Constructor:
   - ClientManagementTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
@@ -169,6 +169,14 @@ Constructor:
   - EmbeddingsTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
+### Class: EnvelopeSalvager
+> v15: Repair pass for failed decision-envelope decodes. Two content-preserving
+Cross-package deps: ECAssistant.LLM.Models
+
+### Class: EnvelopeSalvagerTests
+> v15 (Emre, 2026-09-24): pure-logic tests for truncated-envelope salvage.
+Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models
+
 ### Class: ErrorDetail
 > Generic API error response.
 
@@ -179,6 +187,12 @@ Constructor:
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: ErrorResponse
+> Generic API error response.
+
+### Class: EvaluateRequest
+> Generic API error response.
+
+### Class: EvaluateResponse
 > Generic API error response.
 
 ### Class: GgufArchitectureReader
@@ -202,12 +216,6 @@ Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
 > Tests for GET /eca/health.
 Constructor:
   - HealthTests(TestServerFixture fixture)
-Cross-package deps: ECAssistant.LLM.Tests.Fixtures
-
-### Class: HeartbeatTests
-> Tests for heartbeat mechanism. Uses the main TestServerFixture (timeout 300s).
-Constructor:
-  - HeartbeatTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: InferenceDefaults
@@ -457,6 +465,12 @@ Implements: IDisposable
 Constructor:
   - SessionContext(string clientId, string sessionId, string modelId, LLamaWeights weights, ModelParams modelParams, InferenceParams inferenceParams, ILogger logger, MtmdWeights? mtmd = null)
 Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config
+
+### Class: SessionEvaluateEndpointTests
+> v15 (Emre, 2026-09-24): endpoint tests for the KV-hygiene surface —
+Constructor:
+  - SessionEvaluateEndpointTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: SessionLifecycleTests
 > Tests for session lifecycle: create, status, destroy, and validation.

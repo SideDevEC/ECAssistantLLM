@@ -335,3 +335,20 @@ Section semantics:
   checkpoint/restore (PR #20700, closed unmerged; see issues #21681/#22384). Revisit when the
   fix lands upstream; until then stateless calls use `StatelessExecutor` cold path.
 
+
+---
+
+## Addendum — 2026-09-24 (Emre-approved batch: cap removal, salvage, KV hygiene)
+
+- **Structured envelope budget is config-driven (v15 max_tokens law).** The former hard 256-token clamp is removed from all three sites: `CreateStructuredInferenceParams` (in-process), the process-backend structured path (`RequestRouter`), and `ProcessSession.InferAsync` grammar branch. Resolution order: request `max_tokens` → per-model catalog (`ModelConfig.MaxTokens`) → global `Inference.MaxTokens`, ceiling `MaxInferenceTokens` (32768). Early-stop on envelope completion remains the actual bound for normal generations; `ClampToSessionHeadroom` still guards shift-incapable models.
+- **`EnvelopeSalvager` (new, `Engine/`, pure static):** gated repair for failed envelope decodes. (1) Balanced extraction — a complete envelope buried under trailing chunk garbage is re-extracted. (2) Truncated-answer repair — when generation burned the budget inside the answer string, the answer value is extracted, degenerate loops are cut at the second 6-word-gram occurrence, trimmed to the last sentence terminator, the document is closed, and it must pass the strict `StructuredDecoder` — a repair that cannot decode is discarded. Toolcalls envelopes are structurally excluded (no `answer` key → 422 as before).
+- **Salvage is wired into both structured catch blocks** (`RequestRouter` in-process + process-backend). Trigger: `InvalidDecisionException` with `earlyStop == false`. On success the router returns `{"decision": repaired}` (200) — Core sees an ordinary decision; the empty-retry cycle (fallback re-decode + rewind + nudge) is skipped entirely.
+- **Salvage KV hygiene — rewind + refeed:** in-process session path: rewind to the pre-generation snapshot, then feed the repaired envelope as prompt (`MaxTokens=1`, single stray sample token, drained). The cache ends holding a clean, closed envelope — no bad example in the model's view. Process backend: transcript rewind + `ProcessSession.AppendAssistantReply(repaired)`; child prefix cache rebuilds naturally next turn.
+- **Accounting note:** `SessionContext.RewindAsync` does not restore `ApproxTokenCount` (pre-existing behavior for all rewinds) — post-salvage usage is a mild over-estimate; safe direction (compaction fires early, never late).
+- **Tests:** `EnvelopeSalvagerTests` (11 cases); `ProcessSessionStructuredTests` clamp test replaced by pass-through assert (`InferAsync_WithGrammar_RespectsRequestedMaxTokens`). LLM suite 261/261.
+
+### KV-hygiene endpoint surface (same batch, Emre-approved)
+
+- **`POST /eca/sessions/{id}/evaluate`** (new): prompt-only feed with bounded sampling (≤ `max_tokens`, default 1, response discarded) without committing a conversation turn. Backed by `SessionContext.EvaluateAsync` (in-process: prompt consumed by executor, accounting included) and `ProcessSession.EvaluateAsync` (process: transient child turn, transcript untouched, child prefix-cache absorbs the prefill). Use cases: repaired-content injection after rewind (salvage follow-up now uses it instead of the MaxTokens=1 InferAsync hack), cache warming of injected context, steering placement. LLamaSharp cannot sample zero tokens — the ≤1 stray sample is documented and bounded.
+- **`GET /eca/sessions/{id}/status` extended**: adds `has_saved_state` (rewind snapshot present — lets Core/tests know a rewind would succeed without attempting it) and `headroom_tokens` (`context − approx`, long math, underflow-safe).
+- **`SessionContext.HasSavedState` / `ProcessSession.HasSavedState`**: new diagnostic properties backing the above.

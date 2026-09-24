@@ -109,6 +109,43 @@ public sealed class RewindResponse
 }
 
 /// <summary>
+/// v15 (Emre, 2026-09-24): evaluate request — feed text into a session's KV cache
+/// as prompt with bounded sampling. The KV-hygiene primitive: repaired-content
+/// injection, cache warming after rewind, steering injection — without a real
+/// generation turn.
+/// </summary>
+public sealed class EvaluateRequest
+{
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = "";
+
+    /// <summary>Upper bound on sampled tokens after the prompt is consumed.
+    /// Default 1 — LLamaSharp's executor cannot sample zero tokens; callers that
+    /// need an exact tail should keep this at 1 and account for the stray sample
+    /// (documented in ARCHITECTURE.md).</summary>
+    [JsonPropertyName("max_tokens")]
+    public int? MaxTokens { get; set; }
+}
+
+/// <summary>
+/// Evaluate response.
+/// </summary>
+public sealed class EvaluateResponse
+{
+    [JsonPropertyName("accepted")]
+    public bool Accepted { get; set; }
+
+    [JsonPropertyName("prompt_chars")]
+    public int PromptChars { get; set; }
+
+    [JsonPropertyName("sampled_tokens")]
+    public int SampledTokens { get; set; }
+
+    [JsonPropertyName("approx_tokens")]
+    public int ApproxTokens { get; set; }
+}
+
+/// <summary>
 /// Model load request.
 /// </summary>
 public sealed class LoadModelRequest

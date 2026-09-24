@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-24T07:59:08.240874+00:00
-Packages: 2  |  Types: 183
+Generated: 2026-09-24T20:58:20.697446+00:00
+Packages: 2  |  Types: 188
 
 ---
 
-## ECAssistantLLM (134 types, ~9712 LOC)
+## ECAssistantLLM (138 types, ~10426 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -46,9 +46,13 @@ Packages: 2  |  Types: 183
 - 🟡 EmbeddingRequest  (ECAssistantLLM)
 - 🟡 EmbeddingResponse  (ECAssistantLLM)
 - 🟡 EmbeddingsTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 EnvelopeSalvager  (ECAssistantLLM)
+- 🟡 EnvelopeSalvagerTests  (ECAssistantLLM)
 - 🟡 ErrorDetail  (ECAssistantLLM)
 - 🟡 ErrorHandlingTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ErrorResponse  (ECAssistantLLM)
+- 🟡 EvaluateRequest  (ECAssistantLLM)
+- 🟡 EvaluateResponse  (ECAssistantLLM)
 - 🟡 GgufArchitectureReader  (ECAssistantLLM)
 - 🟡 GgufArchitectureReaderTests  (ECAssistantLLM)
 - 🟣 GpuLayerDecision  (ECAssistantLLM)  deps: [int, bool, string]
@@ -56,7 +60,6 @@ Packages: 2  |  Types: 183
 - 🟡 GpuLayerGuardTests  (ECAssistantLLM)
 - 🟡 GrammarProbeTests  (ECAssistantLLM)
 - 🟡 HealthTests  (ECAssistantLLM)  deps: [TestServerFixture]
-- 🟡 HeartbeatTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 InferenceDefaults  (ECAssistantLLM)
 - 🟡 InferenceScheduler : IInferenceScheduler  (ECAssistantLLM)  deps: [ILogger]
 - 🟡 InvalidDecisionException : Exception  (ECAssistantLLM)  deps: [string]
@@ -112,6 +115,7 @@ Packages: 2  |  Types: 183
 - 🟡 ServerLogger : ILogger  (ECAssistantLLM)  deps: [LogLevel minLevel =, string? logFile =]
 - 🟡 ServerSection  (ECAssistantLLM)
 - 🟡 SessionContext : IDisposable  (ECAssistantLLM)  deps: [string, string, string, LLamaWeights, ModelParams, InferenceParams, ILogger, MtmdWeights? mtmd =]
+- 🟡 SessionEvaluateEndpointTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SessionLifecycleTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SessionRegistry : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger, MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger, VramBudget]
 - 🟣 SessionStatusInfo  (ECAssistantLLM)  deps: [string, string, string, bool, int, uint, double, DateTime, DateTime]
@@ -142,7 +146,7 @@ Packages: 2  |  Types: 183
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (49 types, ~4324 LOC)
+## Tests (50 types, ~4479 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -154,12 +158,12 @@ Packages: 2  |  Types: 183
 - 🟡 ConcurrentRequestTests  (Tests)  deps: [TestServerFixture]
 - 🟡 DecisionGrammarBuildTests  (Tests)
 - 🟡 EmbeddingsTests  (Tests)  deps: [TestServerFixture]
+- 🟡 EnvelopeSalvagerTests  (Tests)
 - 🟡 ErrorHandlingTests  (Tests)  deps: [TestServerFixture]
 - 🟡 GgufArchitectureReaderTests  (Tests)
 - 🟡 GpuLayerGuardTests  (Tests)
 - 🟡 GrammarProbeTests  (Tests)
 - 🟡 HealthTests  (Tests)  deps: [TestServerFixture]
-- 🟡 HeartbeatTests  (Tests)  deps: [TestServerFixture]
 - 🟡 KvCacheTests  (Tests)  deps: [TestServerFixture]
 - 🟡 LlmServerConfigTests : IDisposable  (Tests)
 - 🟡 MalformedRequestTests  (Tests)  deps: [TestServerFixture]
@@ -181,6 +185,7 @@ Packages: 2  |  Types: 183
 - 🟡 ServerCollection : TestServerFixture>  (Tests)
 - 🟡 ServerIdleShutdownTests  (Tests)
 - 🟡 ServerLogTests  (Tests)  deps: [TestServerFixture]
+- 🟡 SessionEvaluateEndpointTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SessionLifecycleTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SseStreamerTests : IDisposable  (Tests)

@@ -11,7 +11,7 @@ namespace ECAssistant.LLM.Tests.Backends;
 
 /// <summary>
 /// Structured mode on process-backend models: grammar + enable_thinking=false reach
-/// the child payload, and the max_tokens clamp (256) mirrors the in-process envelope cap.
+/// the child payload, and the max_tokens pass-through (v15: config-driven budget).
 /// </summary>
 public sealed class ProcessSessionStructuredTests
 {
@@ -124,7 +124,7 @@ public sealed class ProcessSessionStructuredTests
     }
 
     [Fact]
-    public async Task InferAsync_WithGrammar_ClampsMaxTokensTo256()
+    public async Task InferAsync_WithGrammar_RespectsRequestedMaxTokens()
     {
         using var child = new StubChild();
         var registry = new ProcessSessionRegistry(new FakeProcessHost(child.Url), Config(), new ServerLogger(LogLevel.Error));
@@ -135,7 +135,9 @@ public sealed class ProcessSessionStructuredTests
         { }
 
         var payload = JsonNode.Parse(child.LastBody!)!.AsObject();
-        Assert.Equal(256, payload["max_tokens"]!.GetValue<int>());
+        // v15 (Emre, 2026-09-24): the former hard 256 clamp was removed — the request
+        // budget passes through (config-driven max_tokens law).
+        Assert.Equal(4096, payload["max_tokens"]!.GetValue<int>());
     }
 
     [Fact]
@@ -153,5 +155,42 @@ public sealed class ProcessSessionStructuredTests
         Assert.Null(payload["chat_template_kwargs"]);
         // non-structured keeps the existing 512-default clamp behavior
         Assert.Equal(4096, payload["max_tokens"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_FeedsTransientTurn_TranscriptUntouched()
+    {
+        // v15 (Emre, 2026-09-24): KV-hygiene primitive — prompt-only feed with
+        // bounded sampling; the transient turn must NOT enter the session transcript.
+        using var child = new StubChild();
+        var registry = new ProcessSessionRegistry(new FakeProcessHost(child.Url), Config(), new ServerLogger(LogLevel.Error));
+        using var session = registry.Create("client-a", "s1", ProcessModel());
+
+        var (ok, _) = await session.EvaluateAsync("repaired envelope text", maxTokens: 1);
+        Assert.True(ok);
+
+        var payload = JsonNode.Parse(child.LastBody!)!.AsObject();
+        Assert.Equal(1, payload["max_tokens"]!.GetValue<int>());
+
+        // Transcript untouched: the next real turn's payload must not contain the
+        // transient evaluate text as a committed message.
+        var before = child.LastBody;
+        await foreach (var _ in session.InferAsync(ChatRequest().Messages, ChatRequest()))
+        { }
+        var nextPayload = JsonNode.Parse(child.LastBody!)!.AsObject();
+        Assert.NotEqual(before, child.LastBody);
+        Assert.DoesNotContain("repaired envelope text", nextPayload.ToString());
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_EmptyText_SucceedsWithoutChildCall()
+    {
+        using var child = new StubChild();
+        var registry = new ProcessSessionRegistry(new FakeProcessHost(child.Url), Config(), new ServerLogger(LogLevel.Error));
+        using var session = registry.Create("client-a", "s1", ProcessModel());
+
+        var (ok, _) = await session.EvaluateAsync("");
+        Assert.True(ok);
+        Assert.Null(child.LastBody); // no child round-trip for empty text
     }
 }

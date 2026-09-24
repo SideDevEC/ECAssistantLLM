@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 49  |  LOC: 4324  |  ~2289 tokens
+Types: 50  |  LOC: 4479  |  ~2334 tokens
 
 ---
 
@@ -25,7 +25,7 @@ Cross-package deps: ECAssistant.LLM.Models, Xunit
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
 
 ### Class: ClientManagementTests
-> Tests for client registration, heartbeat and disconnect
+> Tests for client registration and disconnect
 Constructor:
   - ClientManagementTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
@@ -50,6 +50,10 @@ Constructor:
   - EmbeddingsTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
+### Class: EnvelopeSalvagerTests
+> v15 (Emre, 2026-09-24): pure-logic tests for truncated-envelope salvage.
+Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models
+
 ### Class: ErrorHandlingTests
 > Cross-cutting error-handling tests: unknown paths, wrong methods,
 Constructor:
@@ -71,12 +75,6 @@ Cross-package deps: ECAssistant.LLM.Engine, ECAssistant.LLM.Models, Xunit
 > Tests for GET /eca/health.
 Constructor:
   - HealthTests(TestServerFixture fixture)
-Cross-package deps: ECAssistant.LLM.Tests.Fixtures
-
-### Class: HeartbeatTests
-> Tests for heartbeat mechanism. Uses the main TestServerFixture (timeout 300s).
-Constructor:
-  - HeartbeatTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: KvCacheTests
@@ -178,6 +176,12 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.
 > Tests that the server creates log files and writes meaningful entries
 Constructor:
   - ServerLogTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: SessionEvaluateEndpointTests
+> v15 (Emre, 2026-09-24): endpoint tests for the KV-hygiene surface —
+Constructor:
+  - SessionEvaluateEndpointTests(TestServerFixture fixture)
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: SessionLifecycleTests

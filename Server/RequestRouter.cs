@@ -151,6 +151,9 @@ public sealed class RequestRouter : IRequestRouter
         if (path.StartsWith("/eca/sessions/") && path.EndsWith("/reset") && method == "POST")
         { await HandleResetAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/reset")); return; }
 
+        if (path.StartsWith("/eca/sessions/") && path.EndsWith("/evaluate") && method == "POST")
+        { await HandleEvaluateAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/evaluate"), ct); return; }
+
         if (path.StartsWith("/eca/sessions/") && path.EndsWith("/status") && method == "GET")
         { await HandleSessionStatusAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/status")); return; }
 
@@ -392,9 +395,10 @@ public sealed class RequestRouter : IRequestRouter
             var earlyStop = false;
             IAsyncEnumerable<string> structuredStream;
             string sessionIdLabel;
+            ProcessSession? structuredSession = null;
             if (req.SessionId != null)
             {
-                var structuredSession = _processSessions?.Get(clientId, req.SessionId);
+                structuredSession = _processSessions?.Get(clientId, req.SessionId);
                 if (structuredSession == null)
                 {
                     await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
@@ -414,7 +418,10 @@ public sealed class RequestRouter : IRequestRouter
                         new ErrorResponse { Error = new() { Message = "Process backend unavailable", Type = "model_error" } }, 503);
                     return;
                 }
-                var structuredMaxTokens = Math.Clamp(Math.Min(req.MaxTokens ?? 256, 256), 1, 256);
+                // v15 (Emre, 2026-09-24): config-driven budget — same rule as the
+                // in-process path; the hard 256 clamp truncated long answers.
+                var structuredMaxTokens = Math.Clamp(
+                    EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
                 structuredStream = stateless.InferStatelessAsync(
                     req.Model, req.Messages, req, grammar: DecisionGrammar.BuildGbnf(req.ToolNames), structuredMaxTokens, ct);
                 sessionIdLabel = "stateless";
@@ -442,9 +449,44 @@ public sealed class RequestRouter : IRequestRouter
             }
             catch (InvalidDecisionException ex)
             {
-                _logger.Warn("Router", $"[Structured/process] decode failed: {ex.Message} | raw: {structuredSb.ToString()[..Math.Min(structuredSb.Length, 300)]}");
-                await SseStreamer.WriteJsonAsync(ctx.Response,
-                    new ErrorResponse { Error = new() { Message = $"Invalid decision envelope: {ex.Message}", Type = "invalid_decision" } }, 422);
+                // v15 (Emre, 2026-09-24): gated salvage — same repair as the in-process
+                // structured path. The process session is transcript-backed: rewind the
+                // truncated turn, then commit the repaired envelope as the assistant
+                // reply; the child's prefix cache rebuilds naturally on the next turn.
+                DecisionEnvelope? salvaged = null;
+                if (!earlyStop)
+                    salvaged = EnvelopeSalvager.TryRepair(structuredSb.ToString());
+                if (salvaged != null)
+                {
+                    _logger.Warn("Router", $"[Structured/process] TRUNCATED envelope salvaged: answer={salvaged.Answer?.Length ?? 0} chars (earlyStop={earlyStop}, raw={structuredSb.Length} chars)");
+                    if (structuredSession != null)
+                    {
+                        var rewound = await structuredSession.RewindAsync();
+                        if (rewound)
+                        {
+                            try
+                            {
+                                var repairedJson = System.Text.Json.JsonSerializer.Serialize(salvaged);
+                                structuredSession.AppendAssistantReply(repairedJson);
+                            }
+                            catch (Exception appendEx)
+                            {
+                                _logger.Warn("Router", $"[Structured/process] salvage re-append failed: {appendEx.Message}");
+                            }
+                        }
+                        else
+                        {
+                            _logger.Warn("Router", "[Structured/process] salvage rewind unavailable — keeping raw decode in transcript");
+                        }
+                    }
+                    await SseStreamer.WriteJsonAsync(ctx.Response, new { decision = salvaged });
+                }
+                else
+                {
+                    _logger.Warn("Router", $"[Structured/process] decode failed: {ex.Message} | raw: {structuredSb.ToString()[..Math.Min(structuredSb.Length, 300)]}");
+                    await SseStreamer.WriteJsonAsync(ctx.Response,
+                        new ErrorResponse { Error = new() { Message = $"Invalid decision envelope: {ex.Message}", Type = "invalid_decision" } }, 422);
+                }
             }
             return;
         }
@@ -595,7 +637,14 @@ public sealed class RequestRouter : IRequestRouter
         {
             var structuredSw = System.Diagnostics.Stopwatch.StartNew();
             _logger.Info("Router", $"[Structured] generation start (session={req.SessionId ?? "stateless"}, max_tokens={req.MaxTokens})");
-            var structuredParams = CreateStructuredInferenceParams(req);
+            // v15 (Emre, 2026-09-24): the structured envelope budget is config-driven —
+            // request value wins, then per-model catalog, then the global inference
+            // default. The old hard 256 clamp contradicted the v15 max_tokens law
+            // ("no tier caps, config-driven budgets") and truncated legitimate long
+            // answers mid-envelope; early-stop already bounds normal generations.
+            var structuredMaxTokens = Math.Clamp(
+                EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
+            var structuredParams = CreateStructuredInferenceParams(req, structuredMaxTokens);
             // v15: same headroom clamp for the structured session path (see below).
             if (session != null) ClampToSessionHeadroom(session, structuredParams, structured: true);
             var structuredSb = new StringBuilder();
@@ -653,9 +702,52 @@ public sealed class RequestRouter : IRequestRouter
             }
             catch (InvalidDecisionException ex)
             {
-                _logger.Warn("Router", $"Structured decode failed: {ex.Message} | raw: {structuredSb.ToString()[..Math.Min(structuredSb.Length, 300)]}");
-                await SseStreamer.WriteJsonAsync(ctx.Response,
-                    new ErrorResponse { Error = new() { Message = $"Invalid decision envelope: {ex.Message}", Type = "invalid_decision" } }, 422);
+                // v15 (Emre, 2026-09-24): gated salvage — a truncated envelope (budget
+                // burned inside the answer string, earlyStop never fired) still holds
+                // the complete content in the buffer. Repair it and return a valid
+                // decision instead of failing the turn into the empty-retry cycle.
+                DecisionEnvelope? salvaged = null;
+                if (!earlyStop)
+                    salvaged = EnvelopeSalvager.TryRepair(structuredSb.ToString());
+                if (salvaged != null)
+                {
+                    _logger.Warn("Router", $"[Structured] TRUNCATED envelope salvaged: answer={salvaged.Answer?.Length ?? 0} chars (earlyStop={earlyStop}, raw={structuredSb.Length} chars)");
+                    // KV hygiene (session path only): rewind past the truncated decode,
+                    // then re-feed the repaired envelope so the cache holds a clean,
+                    // well-formed example instead of an unterminated one. MaxTokens=1
+                    // bounds the post-prefill sample to a single (harmless) token.
+                    if (session != null)
+                    {
+                        var rewound = await session.RewindAsync();
+                        if (rewound)
+                        {
+                            try
+                            {
+                                var repairedJson = System.Text.Json.JsonSerializer.Serialize(salvaged);
+                                // First-class KV-hygiene primitive: prompt-only feed with
+                                // bounded sampling (≤1 stray sample token, discarded).
+                                var (fed, _, _) = await session.EvaluateAsync(repairedJson, maxTokens: 1, ct);
+                                if (!fed)
+                                    _logger.Warn("Router", "[Structured] salvage KV refeed rejected by session");
+                            }
+                            catch (Exception feedEx)
+                            {
+                                _logger.Warn("Router", $"[Structured] salvage KV refeed failed: {feedEx.Message}");
+                            }
+                        }
+                        else
+                        {
+                            _logger.Warn("Router", "[Structured] salvage rewind unavailable — keeping raw decode in cache");
+                        }
+                    }
+                    await SseStreamer.WriteJsonAsync(ctx.Response, new { decision = salvaged });
+                }
+                else
+                {
+                    _logger.Warn("Router", $"Structured decode failed: {ex.Message} | raw: {structuredSb.ToString()[..Math.Min(structuredSb.Length, 300)]}");
+                    await SseStreamer.WriteJsonAsync(ctx.Response,
+                        new ErrorResponse { Error = new() { Message = $"Invalid decision envelope: {ex.Message}", Type = "invalid_decision" } }, 422);
+                }
             }
             return;
         }
@@ -1220,6 +1312,64 @@ public sealed class RequestRouter : IRequestRouter
         await SseStreamer.WriteJsonAsync(ctx.Response, new { saved = ok });
     }
 
+    /// <summary>
+    /// v15 (Emre, 2026-09-24): POST /eca/sessions/{id}/evaluate — KV-hygiene
+    /// primitive. Feeds text into the session's cache as prompt with bounded
+    /// sampling (≤ max_tokens, default 1, response discarded) without committing a
+    /// conversation turn. Use cases: repaired-content injection after a rewind
+    /// (envelope salvage follow-up), cache warming of injected context, steering
+    /// content placement. Process sessions: transient child turn, transcript
+    /// untouched. In-process sessions: prompt consumed by the executor directly.
+    /// </summary>
+    private async Task HandleEvaluateAsync(HttpListenerContext ctx, string? clientId, string sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(clientId))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
+            return;
+        }
+
+        var req = await SseStreamer.ReadJsonAsync<EvaluateRequest>(ctx.Request);
+        if (req == null || string.IsNullOrEmpty(req.Text))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "text required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        // Process sessions first (transcript-backed), then in-process KV sessions.
+        var procSession = _processSessions?.Get(clientId, sessionId);
+        if (procSession != null)
+        {
+            var (pOk, pSampled) = await procSession.EvaluateAsync(req.Text, req.MaxTokens ?? 1, ct);
+            await SseStreamer.WriteJsonAsync(ctx.Response, new EvaluateResponse
+            {
+                Accepted = pOk,
+                PromptChars = req.Text.Length,
+                SampledTokens = pSampled,
+                ApproxTokens = procSession.ApproxTokenCount,
+            });
+            return;
+        }
+
+        var session = _sessions.GetSession(clientId, sessionId);
+        if (session == null)
+        {
+            await WriteSessionNotFoundAsync(ctx.Response, sessionId);
+            return;
+        }
+
+        var (ok, sampled, approx) = await session.EvaluateAsync(req.Text, req.MaxTokens ?? 1, ct);
+        await SseStreamer.WriteJsonAsync(ctx.Response, new EvaluateResponse
+        {
+            Accepted = ok,
+            PromptChars = req.Text.Length,
+            SampledTokens = sampled,
+            ApproxTokens = approx,
+        });
+    }
+
     private async Task HandleResetAsync(HttpListenerContext ctx, string? clientId, string sessionId)
     {
         if (string.IsNullOrEmpty(clientId))
@@ -1286,8 +1436,10 @@ public sealed class RequestRouter : IRequestRouter
                 client_id = procSession.ClientId,
                 model_id = procSession.ModelId,
                 is_prefilled = procSession.IsPrefilled,
+                has_saved_state = procSession.HasSavedState,
                 approx_tokens = procSession.ApproxTokenCount,
                 context_size = procSession.ContextSize,
+                headroom_tokens = (long)procSession.ContextSize - Math.Min((long)procSession.ApproxTokenCount, (long)procSession.ContextSize),
                 estimated_vram_mb = procSession.EstimatedVramMb,
                 created_at = procSession.CreatedAt,
                 last_activity = procSession.LastActivity
@@ -1308,8 +1460,10 @@ public sealed class RequestRouter : IRequestRouter
             client_id = session.ClientId,
             model_id = session.ModelId,
             is_prefilled = session.IsPrefilled,
+            has_saved_state = session.HasSavedState,
             approx_tokens = session.ApproxTokenCount,
             context_size = session.ContextSize,
+            headroom_tokens = (long)session.ContextSize - Math.Min((long)session.ApproxTokenCount, (long)session.ContextSize),
             estimated_vram_mb = session.EstimatedVramMb,
             created_at = session.CreatedAt,
             last_activity = session.LastActivity
@@ -1945,7 +2099,7 @@ public sealed class RequestRouter : IRequestRouter
 
     /// <summary>v13: inference params with the decision grammar injected at the sampler —
     /// the model physically cannot emit anything but a valid decision envelope.</summary>
-    private static LLama.Common.InferenceParams CreateStructuredInferenceParams(ChatCompletionRequest req)
+    private static LLama.Common.InferenceParams CreateStructuredInferenceParams(ChatCompletionRequest req, int maxTokens)
     {
         var pipe = new LLama.Sampling.DefaultSamplingPipeline
         {
@@ -1958,12 +2112,13 @@ public sealed class RequestRouter : IRequestRouter
         // v13: NO anti-prompts here — the grammar already bounds output, and a stop
         // sequence (e.g. "User:") can legally occur inside a JSON string value,
         // truncating the envelope mid-document.
-        // v14.7: Reduced default max_tokens from 512 to 256 — the envelope rarely
-        // exceeds 100 tokens. Early termination in the streaming loop handles the
-        // actual stop; this is just a safety cap.
+        // v15 (Emre, 2026-09-24): budget is resolved by the caller via
+        // EffectiveMaxTokens (request → per-model catalog → global default) — the
+        // former hard 256 clamp violated the v15 max_tokens law and truncated
+        // legitimate long answers; early-stop bounds normal generations.
         return new LLama.Common.InferenceParams
         {
-            MaxTokens = Math.Clamp(req.MaxTokens ?? 256, 1, MaxInferenceTokens),
+            MaxTokens = Math.Clamp(maxTokens, 1, MaxInferenceTokens),
             // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
             // shift-incapable models; our server-side overflow recovery is the truncation path.
             OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
