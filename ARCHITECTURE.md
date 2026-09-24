@@ -1,6 +1,6 @@
 # ECAssistantLLM — Architecture (as-is)
 
-**Updated:** 2026-09-23 · **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED (185 types)
+**Updated:** 2026-09-24 · **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED (183 types)
 **History:** git log — this file describes the CURRENT state only.
 **Topical docs:** ARCHITECTURE-STRUCTURED-DECODING.md (decision grammar pipeline), ARCHITECTURE-BACKENDS.md (process backends)
 

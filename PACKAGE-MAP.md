@@ -1,6 +1,6 @@
 # PACKAGE-MAP.md — ECAssistantLLM
 
-Generated: 2026-09-23T20:55:28.721830+00:00
+Generated: 2026-09-24T00:29:49.466933+00:00
 
 ---
 
