@@ -1,8 +1,8 @@
 name: Cross-platform unit tests
 
+# Suppressed until v15 shipping round (Emre 2026-09-25)
+# Root cause: ECAssistantInference not published to NuGet → NU1101 restore error
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
