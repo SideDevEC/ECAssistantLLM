@@ -90,6 +90,9 @@ public sealed class BatchInferenceCoordinator : IDisposable
         await _cycleGate.WaitAsync(ct);
         try
         {
+            // Re-check after acquiring: shutdown may have completed while we waited.
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(BatchInferenceCoordinator));
             return await RunInferCycleCoreAsync(ct);
         }
         finally
@@ -179,14 +182,26 @@ public sealed class BatchInferenceCoordinator : IDisposable
     public LLamaContext Context => _executor.Context;
 
     /// <summary>
-    /// Dispose the executor. Retired sessions' conversations live in the shared context —
-    /// disposing the executor frees the whole shared KV pool, so no conversation can leak
-    /// past shutdown even if it never got a cleanup cycle.
+    /// Graceful shutdown: acquire the cycle gate FIRST, so any in-flight native
+    /// <c>llama_decode</c> fully completes before the executor is disposed. Disposing the
+    /// executor under a running decode is a native crash (same class as the
+    /// dispose-vs-cycle race). Request threads racing the flag are serialized behind the
+    /// same gate: they either complete their cycle or get ObjectDisposedException after
+    /// it — never a native dispose during decode.
+    /// Blocking only at process shutdown; normal operation is unaffected.
     /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
-        _disposed = true;
-        _executor.Dispose();
+        _cycleGate.Wait();
+        try
+        {
+            _disposed = true;
+            _executor.Dispose();
+        }
+        finally
+        {
+            _cycleGate.Release();
+        }
     }
 }
