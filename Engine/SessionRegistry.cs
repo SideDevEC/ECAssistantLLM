@@ -155,7 +155,7 @@ public sealed class SessionRegistry : IDisposable
         {
             ContextSize = (uint)config.ContextSize,
             BatchSize = config.BatchSize > 0 ? (uint)config.BatchSize : 512,
-            SeqMax = 1,
+            SeqMax = 2,
             PoolingType = pooling,
         };
     }

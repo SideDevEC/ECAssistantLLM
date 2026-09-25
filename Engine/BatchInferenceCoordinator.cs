@@ -11,6 +11,7 @@ public sealed class BatchInferenceCoordinator : IDisposable
 {
     private readonly IInferenceContext _context;
     private readonly IConversationPool _pool;
+    private readonly IInferenceModel? _model;
     private readonly IVisionEncoder? _vision;
     private readonly ILogger _logger;
     private readonly string _modelId;
@@ -22,18 +23,21 @@ public sealed class BatchInferenceCoordinator : IDisposable
     private readonly object _sessionsLock = new();
 
     public IInferenceContext Context => _context;
+    public IInferenceModel? Model => _model;
     public uint PoolSize => _pool.Size;
     public int PoolAvailable => _pool.AvailableCount;
 
     public BatchInferenceCoordinator(
         IInferenceContext context,
         IConversationPool pool,
+        IInferenceModel? model,
         IVisionEncoder? vision,
         ILogger logger,
         string modelId)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _pool = pool ?? throw new ArgumentNullException(nameof(pool));
+        _model = model;
         _vision = vision;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _modelId = modelId ?? throw new ArgumentNullException(nameof(modelId));

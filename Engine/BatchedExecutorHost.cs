@@ -51,7 +51,7 @@ public sealed class BatchedExecutorHost : IDisposable
 
             var context = slot.Model.CreateContext(batchCtxConfig);
             var pool = context.CreatePool();
-            var coordinator = new BatchInferenceCoordinator(context, pool, slot.Vision, _logger, modelId);
+            var coordinator = new BatchInferenceCoordinator(context, pool, slot.Model, slot.Vision, _logger, modelId);
             _coordinators[modelId] = coordinator;
 
             EstimatedSharedVramMb += EstimateContextVramMb((int)slot.Config.ContextSize);

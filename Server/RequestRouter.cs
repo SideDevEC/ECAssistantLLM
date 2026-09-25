@@ -665,7 +665,7 @@ public sealed class RequestRouter : IRequestRouter
 
             if (batchSession != null)
             {
-                await foreach (var token in batchSession.InferAsync(builtPrompt, toolsParams, ct))
+                await foreach (var token in batchSession.InferAsync(builtPrompt, toolsParams, ct, grammarStr: ToolCallGrammarFactory.Build(req.Tools!), grammarRoot: ToolCallGrammarFactory.Root))
                 {
                     toolsSb.Append(token);
                     if (TryParseCompleteJson(toolsSb.ToString())) { toolsEarlyStop = true; break; }
@@ -713,7 +713,7 @@ public sealed class RequestRouter : IRequestRouter
 
             if (batchSession != null)
             {
-                await foreach (var token in batchSession.InferAsync(builtPrompt, structuredParams, ct))
+                await foreach (var token in batchSession.InferAsync(builtPrompt, structuredParams, ct, grammarStr: DecisionGrammar.BuildGbnf(req.ToolNames), grammarRoot: DecisionGrammar.Root))
                 {
                     structuredSb.Append(token);
                     if (TryParseCompleteEnvelope(structuredSb.ToString(), out var earlyEnvelope))
@@ -2001,6 +2001,9 @@ public sealed class RequestRouter : IRequestRouter
 
     private static string BuildPromptFromMessages(ModelSlot slot, List<ChatMessage> messages)
     {
+        if (messages == null || messages.Count == 0)
+            return "";
+
         if (slot.Model == null)
         {
             var sb = new StringBuilder();

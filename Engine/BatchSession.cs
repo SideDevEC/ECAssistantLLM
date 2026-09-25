@@ -4,10 +4,6 @@ using ECAssistantInference.Models;
 
 namespace ECAssistant.LLM.Engine;
 
-/// <summary>
-/// Wraps an IConversation on a shared IConversationPool.
-/// Provides the SAME surface and behavior as SessionContext.
-/// </summary>
 public sealed class BatchSession : IDisposable
 {
     private readonly BatchInferenceCoordinator _coordinator;
@@ -74,7 +70,7 @@ public sealed class BatchSession : IDisposable
     {
         if (_conversationDisposed) return;
         _conversationDisposed = true;
-        _conversation.Dispose(); // returns to pool
+        _conversation.Dispose();
         _savedState?.Dispose();
         _savedState = null;
     }
@@ -168,7 +164,6 @@ public sealed class BatchSession : IDisposable
         try
         {
             var startMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
-
             try
             {
                 var promptText = ResolveMtmdMarker(text);
@@ -198,7 +193,6 @@ public sealed class BatchSession : IDisposable
                 _exactTokenCount = CountTokensExact(text);
                 var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
                 LastActivity = DateTime.UtcNow;
-
                 _logger.Info("BatchSession", $"[{Key}] Prefilled ~{_exactTokenCount} tokens in {elapsedMs}ms");
                 return (true, _exactTokenCount, elapsedMs);
             }
@@ -208,10 +202,7 @@ public sealed class BatchSession : IDisposable
                 return (false, 0, 0);
             }
         }
-        finally
-        {
-            _requestGate.Release();
-        }
+        finally { _requestGate.Release(); }
     }
 
     public async IAsyncEnumerable<string> InferAsync(
@@ -227,14 +218,22 @@ public sealed class BatchSession : IDisposable
         if (images is { Count: > 0 } && _vision == null)
             throw new InvalidOperationException("Model has no mmproj loaded — images are not supported on this session.");
 
+        IGrammar? grammar = null;
         await _requestGate.WaitAsync(ct);
         try
         {
-            await foreach (var token in InferCoreAsync(prompt, samplingConfig, ct, images))
+            if (!string.IsNullOrEmpty(grammarStr) && !string.IsNullOrEmpty(grammarRoot) && _coordinator.Model != null)
+            {
+                try { grammar = _coordinator.Model.CreateGrammar(grammarStr, grammarRoot); }
+                catch { }
+            }
+
+            await foreach (var token in InferCoreAsync(prompt, samplingConfig, ct, images, grammar))
                 yield return token;
         }
         finally
         {
+            grammar?.Dispose();
             _requestGate.Release();
         }
     }
@@ -243,7 +242,8 @@ public sealed class BatchSession : IDisposable
         string prompt,
         SamplingConfig? samplingConfig,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct,
-        IReadOnlyList<byte[]>? images)
+        IReadOnlyList<byte[]>? images,
+        IGrammar? grammar)
     {
         LastActivity = DateTime.UtcNow;
 
@@ -312,7 +312,9 @@ public sealed class BatchSession : IDisposable
             int tokenId;
             try
             {
-                tokenId = _conversation.Sample(sampling);
+                tokenId = grammar != null
+                    ? _conversation.SampleWithGrammar(sampling, grammar)
+                    : _conversation.Sample(sampling);
             }
             catch (Exception ex)
             {
