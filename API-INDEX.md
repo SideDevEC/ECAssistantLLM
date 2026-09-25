@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-25T18:22:40.758201+00:00
+Generated: 2026-09-25T20:41:08.072516+00:00
 Packages: 2  |  Types: 213
 
 ---
 
-## ECAssistantLLM (153 types, ~12929 LOC)
+## ECAssistantLLM (153 types, ~12965 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -125,7 +125,7 @@ Packages: 2  |  Types: 213
 - 🟡 ServerCollection : TestServerFixture>  (ECAssistantLLM)
 - 🟡 ServerIdleShutdownTests  (ECAssistantLLM)
 - 🟡 ServerLogTests  (ECAssistantLLM)  deps: [TestServerFixture]
-- 🟡 ServerLogger : ILogger  (ECAssistantLLM)  deps: [LogLevel minLevel =, string? logFile =]
+- 🟡 ServerLogger : ILogger  (ECAssistantLLM)  deps: [LogLevel minLevel =, string? logFile =, Func]
 - 🟡 ServerSection  (ECAssistantLLM)
 - 🟡 SessionContext : IDisposable  (ECAssistantLLM)  deps: [string, string, string, IInferenceModel, ModelConfig, ContextConfig, SamplingConfig, ILogger, IVisionEncoder? vision =]
 - 🟡 SessionEvaluateEndpointTests  (ECAssistantLLM)  deps: [TestServerFixture]

@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 153  |  LOC: 12929  |  ~6667 tokens
+Types: 153  |  LOC: 12965  |  ~6678 tokens
 
 ---
 
@@ -525,7 +525,7 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > Simple file + console logger for the LLM server.
 Implements: ILogger
 Constructor:
-  - ServerLogger(LogLevel minLevel = LogLevel.Info, string? logFile = null)
+  - ServerLogger(LogLevel minLevel = LogLevel.Info, string? logFile = null, Func<string, bool>? componentFilter = null)
 
 ### Class: ServerSection
 > Server binding and lifecycle settings.

@@ -197,9 +197,17 @@ All requests that touch a session carry `X-Client-Id`. JSON is camelCase.
     "max_tokens": 512, "temperature": 0.3, "top_p": 0.95,
     "top_k": 40, "repeat_penalty": 1.1
   },
-  "logging": { "level": "info", "file": "ecassistant-llm.log" }
+  "logging": { "enabled": true, "level": "info", "file": "ecassistant-llm.log", "components": [] }
 }
 ```
+
+### Logging (Emre 2026-09-25)
+- **`LoggingSection`** — `enabled:bool`, `level:string`, `file:string`, `components:string[]`
+- **Zero-overhead when disabled:** `enabled:false` → `LogLevel.None=99`, every call returns immediately
+- **Component filter:** non-empty `components[]` filters Debug/Info by tag prefix; Error/Warn always pass
+- **Known tags:** router, grammar, sampling, sessions, batch, stop, stateless, model, server
+- **Encapsulated in LLM** — no cross-repo logging dependencies. Core has its own `LoggingConfig`, Inference has C-level callback.
+- **`ServerLogger`** accepts optional `componentFilter: Func<string,bool>` — no string allocation when filtered
 
 ## Vision (MTMD / mmproj)
 
