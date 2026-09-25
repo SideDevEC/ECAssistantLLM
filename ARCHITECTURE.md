@@ -107,7 +107,8 @@ Models/  (DTOs)
 | `ModelSlot.Vision` | `IVisionEncoder` | mmproj projector for vision |
 | `SessionContext._savedState` | `IInferenceState` | KV snapshot for rewind |
 | `SamplingConfig` | `SamplingConfig` | Temperature, top-k, top-p, penalties |
-| Grammar (GBNF) | `IGrammar` | `llama_sampler_init_grammar` |
+| Grammar (GBNF) | `IGrammar` | `llama_sampler_init_grammar` (persistent chain, grammar-first, prompt tokens accepted) |
+| Tool calls | `SampleWithGrammar()` | Grammar-constrained sampling + early-stop JSON parsing fallback |
 | Chat template | `ApplyChatTemplate()` | `llama_chat_apply_template` (model-native) |
 
 ## Key Components
@@ -217,6 +218,14 @@ All requests that touch a session carry `X-Client-Id`. JSON is camelCase.
 7. **Inference** — `POST /v1/chat/completions` with `session_id` → `SessionContext.InferAsync` (grammar, vision, anti-prompts, headroom clamp). No `session_id` → stateless.
 8. **Shutdown** — Ctrl+C → dispose clients → sessions → models.
 
+## Known Issues
+
+### Grammar sampler crash (upstream llama.cpp bug)
+- **Affected:** 3 tests requiring grammar-constrained tool call generation
+- **Root cause:** `llama_grammar_accept_chr` in `src/llama-grammar.cpp:1028` drops empty stacks when a multi-character token (e.g. Qwen token `[{`) spans grammar rules with optional whitespace. All stacks become empty → "Unexpected empty grammar stack" exception.
+- **Workaround:** Try/catch on `llama_sampler_accept`; falls back to unconstrained sampling → 422 on tool call JSON parsing.
+- **Fix needed:** Patch llama.cpp or update to a version with fixed grammar sampler.
+
 ## Key Constraints
 
 - **One type per file**, one concern per type.
@@ -232,4 +241,5 @@ All requests that touch a session carry `X-Client-Id`. JSON is camelCase.
 - **ECAssistantInference C++:** 43/43 (14 basic + 29 stress)
 - **ECAssistantInference C#:** 51/51
 - **ECAssistantLLM non-model:** 107/107 (config, backends, buffer, ThinkFilter, EnvelopeSalvager)
-- **Total: 201/201**
+- **ECAssistantLLM non-model:** 310/313 (3 grammar-constrained tool call tests — upstream llama.cpp grammar sampler bug with multi-char tokens)
+- **Total: 204/207** (3 failures: upstream llama.cpp `llama_grammar_accept` crash on multi-character tokens spanning grammar rules)

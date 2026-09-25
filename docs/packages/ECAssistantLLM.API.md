@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 151  |  LOC: 12731  |  ~6610 tokens
+Types: 151  |  LOC: 12768  |  ~6602 tokens
 
 ---
 
@@ -83,7 +83,7 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
 > Coordinates batched inference across all active batch sessions.
 Implements: IDisposable
 Constructor:
-  - BatchInferenceCoordinator(IInferenceContext context, IConversationPool pool, IVisionEncoder? vision, ILogger logger, string modelId)
+  - BatchInferenceCoordinator(IInferenceContext context, IConversationPool pool, IInferenceModel? model, IVisionEncoder? vision, ILogger logger, string modelId)
 Cross-package deps: ECAssistantInference.Abstractions, ECAssistantInference.Models
 
 ### Class: BatchServerCollection
@@ -97,7 +97,6 @@ Implements: IAsyncLifetime
 Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Server
 
 ### Class: BatchSession
-> Wraps an IConversation on a shared IConversationPool.
 Implements: IDisposable
 Constructor:
   - BatchSession(string clientId, string sessionId, string modelId, BatchInferenceCoordinator coordinator, ILogger logger)
