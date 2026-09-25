@@ -256,6 +256,8 @@ public sealed class SessionContext : IDisposable
                     _logger.Warn("SessionContext", $"[{Key}] Grammar creation failed: {ex.Message}");
                     throw; // fail loud — unconstrained generation silently corrupts structured output
                 }
+                if (grammar != null)
+                    _logger.Debug("Grammar", $"[{Key}] Grammar attached: root={grammarRoot}");
             }
 
             if (_vision != null && images is { Count: > 0 })

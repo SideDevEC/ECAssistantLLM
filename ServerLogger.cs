@@ -11,14 +11,17 @@ public sealed class ServerLogger : ILogger
     private readonly string? _logFile;
     private readonly object _lock = new();
     private bool _consoleEnabled = true;
+    private readonly Func<string, bool>? _componentFilter;
 
-    public ServerLogger(LogLevel minLevel = LogLevel.Info, string? logFile = null)
+    public ServerLogger(LogLevel minLevel = LogLevel.Info, string? logFile = null, Func<string, bool>? componentFilter = null)
     {
         _minLevel = minLevel;
         _logFile = logFile;
+        _componentFilter = componentFilter;
     }
 
     public void DisableConsole() => _consoleEnabled = false;
+    public bool IsDebugEnabled => _minLevel <= LogLevel.Debug;
 
     public void Info(string tag, string message) => Write(LogLevel.Info, tag, message);
     public void Warn(string tag, string message) => Write(LogLevel.Warn, tag, message);
@@ -27,7 +30,9 @@ public sealed class ServerLogger : ILogger
 
     private void Write(LogLevel level, string tag, string message)
     {
-        if (level < _minLevel) return;
+        if (level < _minLevel) return; // zero-overhead when None or filtered
+        // Component filter: Error/Warn always pass; Debug/Info respect the filter
+        if (_componentFilter != null && level <= LogLevel.Info && !_componentFilter(tag)) return;
 
         var ts = DateTime.Now.ToString("HH:mm:ss");
         var line = $"[{ts}] [{level}] [{tag}] {message}";
@@ -76,5 +81,6 @@ public enum LogLevel
     Debug = 0,
     Info = 1,
     Warn = 2,
-    Error = 3
+    Error = 3,
+    None = 99
 }

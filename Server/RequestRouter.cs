@@ -907,6 +907,7 @@ public sealed class RequestRouter : IRequestRouter
         {
             var structuredSw = System.Diagnostics.Stopwatch.StartNew();
             _logger.Info("Router", $"[Structured] generation start (session={req.SessionId ?? "stateless"}, max_tokens={req.MaxTokens})");
+            _logger.Debug("Router", $"[Structured] path: {(session != null ? "session" : "stateless")}, grammar: {(req.ToolNames != null ? "toolcall" : "answer")}");
             // v15 (Emre, 2026-09-24): the structured envelope budget is config-driven —
             // request value wins, then per-model catalog, then the global inference
             // default. The old hard 256 clamp contradicted the v15 max_tokens law
@@ -1979,7 +1980,7 @@ public sealed class RequestRouter : IRequestRouter
         string? grammarRoot = null)
         => images is { Count: > 0 }
             ? StatelessVisionInferAsync(slot, prompt, samplingConfig, images, ct)
-            : StatelessInferAsync(slot, prompt, samplingConfig, ct, grammarStr, grammarRoot);
+            : StatelessInferAsync(slot, prompt, samplingConfig, ct, _logger, grammarStr, grammarRoot);
 
     private static string ExtractSessionIdFromPath(string path, string suffix)
     {
@@ -2386,6 +2387,7 @@ public sealed class RequestRouter : IRequestRouter
         string prompt,
         SamplingConfig samplingConfig,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default,
+        ILogger? logger = null,
         string? grammarStr = null,
         string? grammarRoot = null)
     {
@@ -2396,12 +2398,20 @@ public sealed class RequestRouter : IRequestRouter
         // the handler returns 5xx and the client falls back to the capped plain path.
         IGrammar? grammar = null;
         if (!string.IsNullOrEmpty(grammarStr) && !string.IsNullOrEmpty(grammarRoot))
+        {
+            logger?.Debug("Grammar", $"Stateless creating grammar: root={grammarRoot}, gbnf={grammarStr.Length} chars");
             grammar = slot.Model!.CreateGrammar(grammarStr, grammarRoot);
+            logger?.Debug("Grammar", "Stateless grammar attached");
+        }
         try
         {
             exec.Prompt(prompt);
             if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
+            {
+                logger?.Warn("Stateless", "Prefill infer failed");
                 yield break;
+            }
+            logger?.Debug("Stateless", $"Prefill OK, sampling max {samplingConfig.MaxTokens} tokens, grammar={(grammar != null ? "yes" : "no")}");
 
             var maxTokens = samplingConfig.MaxTokens;
             for (int i = 0; i < maxTokens; i++)

@@ -68,23 +68,19 @@ if (config == null)
     return 1;
 }
 
-// ── Setup logger ──
-// Invariant culture: log-level config values must not be reshaped by the OS locale.
-var logLevel = config.Logging.Level.ToLowerInvariant() switch
-{
-    "debug" => LogLevel.Debug,
-    "warn" => LogLevel.Warn,
-    "error" => LogLevel.Error,
-    _ => LogLevel.Info
-};
+// ── Setup logger (config-driven, zero-overhead when disabled) ──
+var logLevel = config.Logging.ResolvedLevel;
 
 // Resolve log file path — ALWAYS confined to the root directory. An absolute path in
 // the config is relocated under the root (root-confinement contract: the server never
 // writes outside its root on any OS).
-var logFilePath = Path.IsPathRooted(config.Logging.File)
-    ? RootPathGuard.EnsureInside(rootDir, config.Logging.File).Path
-    : Path.Combine(rootDir, config.Logging.File);
-var logger = new ServerLogger(logLevel, logFilePath);
+var logFilePath = config.Logging.Enabled
+    ? (Path.IsPathRooted(config.Logging.File)
+        ? RootPathGuard.EnsureInside(rootDir, config.Logging.File).Path
+        : Path.Combine(rootDir, config.Logging.File))
+    : null;
+var logger = new ServerLogger(logLevel, logFilePath,
+    config.Logging.Components.Length > 0 ? config.Logging.IsComponentEnabled : null);
 
 logger.Info("Main", $"ECAssistantLLM v{LlmServerInfo.Version}");
 logger.Info("Main", $"Root: {rootDir}");
