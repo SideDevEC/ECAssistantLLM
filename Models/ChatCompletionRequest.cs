@@ -38,6 +38,8 @@ public sealed class ChatCompletionRequest
     [JsonPropertyName("session_id")]
     public string? SessionId { get; set; }
 
+
+
     /// <summary>v13: grammar-constrained decision decoding — response is a structured
     /// decision envelope instead of free text. Local models only (server enforces via GBNF).</summary>
     [JsonPropertyName("structured")]

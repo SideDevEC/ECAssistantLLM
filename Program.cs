@@ -147,6 +147,23 @@ var processModelHost = new ECAssistant.LLM.Engine.Backends.ProcessModelHost(conf
 // Transcript-backed sessions for process models — Bonsai behaves exactly like in-process models.
 var processSessionRegistry = new ECAssistant.LLM.Engine.Backends.ProcessSessionRegistry(processModelHost, config, logger);
 
+// ── Continuous batching (opt-in via config) ──
+// When continuous_batching=true: creates a BatchedExecutor for sub-agent/stateless inference.
+// When false (default): both are null, zero overhead, 100% current behavior.
+BatchedExecutorHost? batchExecutorHost = null;
+BatchSessionRegistry? batchSessionRegistry = null;
+
+if (config.Server.ContinuousBatching)
+{
+    logger.Info("Main", "Continuous batching ENABLED — sub-agent/stateless requests will use BatchedExecutor");
+    batchExecutorHost = new BatchedExecutorHost(modelHost, config, logger);
+    batchSessionRegistry = new BatchSessionRegistry(batchExecutorHost, config, logger);
+}
+else
+{
+    logger.Info("Main", "Continuous batching disabled — using serialized inference (default)");
+}
+
 // ── Shutdown coordination ──
 var cts = new CancellationTokenSource();
 
@@ -159,7 +176,7 @@ void OnLastClientDisconnected()
 
 var clientManager = new ClientManager(sessionRegistry, config, logger, OnLastClientDisconnected, processSessionRegistry);
 
-var server = new LlmHttpServer(config, modelHost, sessionRegistry, scheduler, vramBudget, clientManager, logger, cts, processModelHost, processSessionRegistry);
+var server = new LlmHttpServer(config, modelHost, sessionRegistry, scheduler, vramBudget, clientManager, logger, cts, processModelHost, processSessionRegistry, batchSessionRegistry);
 
 // ── Handle external shutdown signals ──
 Console.CancelKeyPress += (_, e) =>
@@ -195,6 +212,7 @@ finally
 {
     server.Dispose();
     try { processModelHost.Dispose(); } catch (Exception pex) { logger.Warn("Main", $"Process backend shutdown error: {pex.Message}"); }
+    try { batchExecutorHost?.Dispose(); } catch (Exception bex) { logger.Warn("Main", $"Batched executor shutdown error: {bex.Message}"); }
     logger.Info("Main", "Server stopped.");
 }
 

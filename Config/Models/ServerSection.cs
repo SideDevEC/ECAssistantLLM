@@ -48,6 +48,23 @@ public sealed class ServerSection
     public string? ModelsRoot { get; set; }
 
     /// <summary>
+    /// Enable continuous batching for sub-agent / stateless inference.
+    /// When false (default), all inference is serialized via SemaphoreSlim — current behavior.
+    /// When true, stateless and batch-mode requests route through a shared BatchedExecutor,
+    /// allowing multiple concurrent inferences in a single llama_decode call.
+    /// </summary>
+    [JsonPropertyName("continuous_batching")]
+    public bool ContinuousBatching { get; set; } = false;
+
+    /// <summary>
+    /// Shared context size (tokens) for the BatchedExecutor's KV pool when
+    /// continuous_batching=true. All batch conversations share this single context's
+    /// KV budget. Default 32768 — enough for several concurrent sub-agents.
+    /// </summary>
+    [JsonPropertyName("batch_context_size")]
+    public uint BatchContextSize { get; set; } = 32768;
+
+    /// <summary>
     /// Base URL for HttpListener prefix. e.g. http://localhost:8420/
     /// </summary>
     [JsonIgnore]

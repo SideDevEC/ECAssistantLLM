@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 50  |  LOC: 4479  |  ~2334 tokens
+Types: 59  |  LOC: 5490  |  ~2797 tokens
 
 ---
 
@@ -9,6 +9,52 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
 
 ### Class: BackendSelectorTests
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, Xunit
+
+### Class: BatchBackwardCompatTests
+> Integration tests for backward compatibility — verifies that the standard
+Constructor:
+  - BatchBackwardCompatTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchChatCompletionTests
+> Integration tests for chat completions via the batch path.
+Constructor:
+  - BatchChatCompletionTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchConfigTests
+> Unit tests for BatchSessionRegistry — session CRUD, namespacing, limits.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
+
+### Class: BatchServerCollection
+> Collection definition for the batch test server fixture.
+Implements: ICollectionFixture<BatchServerFixture>
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchServerFixture
+> Second test fixture — identical to <see cref="TestServerFixture"/> but with
+Implements: IAsyncLifetime
+Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Server
+
+### Class: BatchSessionBufferTests
+> Unit tests for BatchSession buffer behavior — no model required.
+Cross-package deps: ECAssistant.LLM.Engine
+
+### Class: BatchSessionLifecycleTests
+> Integration tests for the session lifecycle.
+Constructor:
+  - BatchSessionLifecycleTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchSessionRegistryTests
+> Unit tests for BatchSessionRegistry — session CRUD, namespacing, limits.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
+
+### Class: BatchVsStandardComparisonTests
+> Collection definition for the batch test server fixture.
+Constructor:
+  - BatchVsStandardComparisonTests(BatchServerFixture batchFixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: ChatCompletionTests
 > Tests for OpenAI-compatible chat completions (streaming + non-streaming),

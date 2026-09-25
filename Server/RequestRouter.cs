@@ -27,6 +27,7 @@ public sealed class RequestRouter : IRequestRouter
     private readonly ProcessSessionRegistry? _processSessions;
     private readonly ProcessStatelessClient? _processStateless;
     private readonly BackendSelector _backendSelector = new();
+    private readonly BatchSessionRegistry? _batchSessions;
 
     public RequestRouter(
         MultiModelHost models,
@@ -38,7 +39,8 @@ public sealed class RequestRouter : IRequestRouter
         ILogger logger,
         CancellationTokenSource cts,
         IProcessModelHost? processHost = null,
-        ProcessSessionRegistry? processSessions = null)
+        ProcessSessionRegistry? processSessions = null,
+        BatchSessionRegistry? batchSessions = null)
     {
         _models = models;
         _sessions = sessions;
@@ -51,6 +53,7 @@ public sealed class RequestRouter : IRequestRouter
         _processHost = processHost;
         _processSessions = processSessions;
         _processStateless = processHost != null ? new ProcessStatelessClient(processHost) : null;
+        _batchSessions = batchSessions;
     }
 
     public async Task RouteAsync(HttpListenerContext ctx, CancellationToken ct)
@@ -137,28 +140,36 @@ public sealed class RequestRouter : IRequestRouter
 
         // Session / KV cache
         if (path == "/eca/sessions" && method == "POST")
-        { await HandleCreateSessionAsync(ctx, clientId, ct); return; }
+        {
+            // When continuous_batching is enabled, ALL sessions are batch sessions.
+            // The outside world sees the same API — the server decides internally.
+            if (_batchSessions != null)
+                await HandleCreateBatchSessionAsync(ctx, clientId, ct);
+            else
+                await HandleCreateSessionAsync(ctx, clientId, ct);
+            return;
+        }
 
         if (path.StartsWith("/eca/sessions/") && path.EndsWith("/prefill") && method == "POST")
-        { await HandlePrefillAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/prefill"), ct); return; }
+        { await HandlePrefillOrBatchAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/prefill"), ct); return; }
 
         if (path.StartsWith("/eca/sessions/") && path.EndsWith("/rewind") && method == "POST")
-        { await HandleRewindAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/rewind")); return; }
+        { await HandleRewindOrBatchAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/rewind")); return; }
 
         if (path.StartsWith("/eca/sessions/") && path.EndsWith("/save-state") && method == "POST")
-        { await HandleSaveStateAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/save-state")); return; }
+        { await HandleSaveStateOrBatchAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/save-state")); return; }
 
         if (path.StartsWith("/eca/sessions/") && path.EndsWith("/reset") && method == "POST")
-        { await HandleResetAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/reset")); return; }
+        { await HandleResetOrBatchAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/reset")); return; }
 
         if (path.StartsWith("/eca/sessions/") && path.EndsWith("/evaluate") && method == "POST")
-        { await HandleEvaluateAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/evaluate"), ct); return; }
+        { await HandleEvaluateOrBatchAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/evaluate"), ct); return; }
 
         if (path.StartsWith("/eca/sessions/") && path.EndsWith("/status") && method == "GET")
-        { await HandleSessionStatusAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/status")); return; }
+        { await HandleSessionStatusOrBatchAsync(ctx, clientId, ExtractSessionIdFromPath(path, "/status")); return; }
 
         if (path.StartsWith("/eca/sessions/") && method == "DELETE")
-        { await HandleDestroySessionAsync(ctx, clientId, ExtractSessionIdFromPath(path, "")); return; }
+        { await HandleDestroySessionOrBatchAsync(ctx, clientId, ExtractSessionIdFromPath(path, "")); return; }
 
         // Model management
         if (path == "/eca/models" && method == "GET")
@@ -564,6 +575,253 @@ public sealed class RequestRouter : IRequestRouter
         }
     }
 
+    // ── Continuous batching path ─────────────────────────
+
+    /// <summary>
+    /// Chat completions via the shared BatchedExecutor. Used when continuous_batching=true
+    /// AND the request carries session_mode="batch". Same response shapes as the standard path.
+    /// </summary>
+    private async Task HandleBatchChatAsync(HttpListenerContext ctx, ChatCompletionRequest req, string clientId, CancellationToken ct)
+    {
+        if (_batchSessions == null)
+        {
+            // Should never reach here — routing checks null before calling. Safety net.
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Batch mode not enabled on server", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        if (req.Messages.Count == 0)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "messages is required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        var templateSlot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
+        if (templateSlot?.Weights == null)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
+            return;
+        }
+
+        var builtPrompt = BuildPromptFromMessages(templateSlot, req.Messages);
+        var inferenceParams = CreateInferenceParams(req);
+
+        // Resolve or create a batch session
+        BatchSession? batchSession = null;
+        if (req.SessionId != null)
+        {
+            batchSession = _batchSessions.GetSession(clientId, req.SessionId);
+            if (batchSession == null)
+            {
+                await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
+                return;
+            }
+        }
+
+        // Native tools mode on the batch path
+        if (req.ToolsActive)
+        {
+            var tools = req.Tools!.Where(t => t.IsValid).ToList();
+            var fingerprint = ToolsetFingerprint.Compute(tools);
+
+            // ToolsetFingerprint check — same as standard path: reset on mismatch
+            if (batchSession != null && batchSession.ToolsHash != fingerprint)
+            {
+                if (batchSession.ToolsHash != null)
+                {
+                    _logger.Warn("Router", $"[Tools/batch] session {batchSession.SessionId} toolset changed ({batchSession.ToolsHash[..Math.Min(8, batchSession.ToolsHash.Length)]} → {fingerprint[..8]}) — resetting KV cache");
+                    try { await batchSession.ResetAsync(); }
+                    catch (Exception ex)
+                    {
+                        _logger.Error("Router", $"[Tools/batch] cache reset failed: {ex.Message}");
+                        await SseStreamer.WriteJsonAsync(ctx.Response,
+                            new ErrorResponse { Error = new() { Message = $"Toolset changed and KV cache reset failed: {ex.Message}", Type = "model_error" } }, 503);
+                        return;
+                    }
+                }
+                else
+                {
+                    _logger.Info("Router", $"[Tools/batch] session {batchSession.SessionId} adopting toolset {fingerprint[..8]}");
+                }
+                batchSession.ToolsHash = fingerprint;
+            }
+
+            var grammar = ToolCallGrammarFactory.Build(tools);
+            var toolsParams = CreateGrammarInferenceParams(grammar, req.Temperature, req.TopP, req.TopK, req.RepeatPenalty,
+                Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens));
+
+            var toolsSb = new StringBuilder();
+            var toolsEarlyStop = false;
+
+            if (batchSession != null)
+            {
+                await foreach (var token in batchSession.InferAsync(builtPrompt, toolsParams, ct))
+                {
+                    toolsSb.Append(token);
+                    if (TryParseCompleteJson(toolsSb.ToString())) { toolsEarlyStop = true; break; }
+                }
+            }
+            else
+            {
+                // Stateless batch: create transient session, infer, dispose
+                var transientId = $"_transient_{Guid.NewGuid():N}";
+                var transient = _batchSessions.CreateSession(clientId, transientId, req.Model);
+                try
+                {
+                    await foreach (var token in transient.InferAsync(builtPrompt, toolsParams, ct))
+                    {
+                        toolsSb.Append(token);
+                        if (TryParseCompleteJson(toolsSb.ToString())) { toolsEarlyStop = true; break; }
+                    }
+                }
+                finally { _batchSessions.DestroySession(clientId, transientId); }
+            }
+
+            _logger.Info("Router", $"[Tools/batch] generated {toolsSb.Length} chars (earlyStop={toolsEarlyStop})");
+            try
+            {
+                var calls = ToolCallDecoder.Decode(toolsSb.ToString(), tools);
+                await WriteToolCallsResponseAsync(ctx.Response, req.Model, calls);
+            }
+            catch (InvalidToolCallException ex)
+            {
+                _logger.Warn("Router", $"[Tools/batch] decode failed: {ex.Message}");
+                await SseStreamer.WriteJsonAsync(ctx.Response,
+                    new ErrorResponse { Error = new() { Message = $"Invalid tool_calls output: {ex.Message}", Type = "invalid_tool_calls" } }, 422);
+            }
+            return;
+        }
+
+        // Structured mode on the batch path
+        if (req.Structured)
+        {
+            var structuredMaxTokens = Math.Clamp(
+                EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
+            var structuredParams = CreateStructuredInferenceParams(req, structuredMaxTokens);
+            var structuredSb = new StringBuilder();
+            var earlyStop = false;
+
+            if (batchSession != null)
+            {
+                await foreach (var token in batchSession.InferAsync(builtPrompt, structuredParams, ct))
+                {
+                    structuredSb.Append(token);
+                    if (TryParseCompleteEnvelope(structuredSb.ToString(), out var earlyEnvelope))
+                    {
+                        earlyStop = true;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                var transientId = $"_transient_{Guid.NewGuid():N}";
+                var transient = _batchSessions.CreateSession(clientId, transientId, req.Model);
+                try
+                {
+                    await foreach (var token in transient.InferAsync(builtPrompt, structuredParams, ct))
+                    {
+                        structuredSb.Append(token);
+                        if (TryParseCompleteEnvelope(structuredSb.ToString(), out var earlyEnvelope))
+                        { earlyStop = true; break; }
+                    }
+                }
+                finally { _batchSessions.DestroySession(clientId, transientId); }
+            }
+
+            _logger.Info("Router", $"[Structured/batch] generated {structuredSb.Length} chars (earlyStop={earlyStop})");
+            try
+            {
+                var decision = StructuredDecoder.Decode(structuredSb.ToString());
+                await SseStreamer.WriteJsonAsync(ctx.Response, new { decision });
+            }
+            catch (InvalidDecisionException ex)
+            {
+                var salvaged = EnvelopeSalvager.TryRepair(structuredSb.ToString());
+                if (salvaged != null)
+                {
+                    _logger.Info("Router", $"[Structured/batch] salvage succeeded");
+                    await SseStreamer.WriteJsonAsync(ctx.Response, new { decision = salvaged });
+                }
+                else
+                {
+                    _logger.Warn("Router", $"[Structured/batch] decode failed: {ex.Message}");
+                    await SseStreamer.WriteJsonAsync(ctx.Response,
+                        new ErrorResponse { Error = new() { Message = $"Invalid decision output: {ex.Message}", Type = "invalid_decision" } }, 422);
+                }
+            }
+            return;
+        }
+
+        // Plain chat (streaming or non-streaming) on the batch path
+        if (req.Stream)
+        {
+            IAsyncEnumerable<string> tokenStream;
+            if (batchSession != null)
+            {
+                tokenStream = batchSession.InferAsync(builtPrompt, inferenceParams, ct);
+            }
+            else
+            {
+                var transientId = $"_transient_{Guid.NewGuid():N}";
+                var transient = _batchSessions.CreateSession(clientId, transientId, req.Model);
+                tokenStream = WithCleanup(batchSession != null
+                    ? batchSession.InferAsync(builtPrompt, inferenceParams, ct)
+                    : transient.InferAsync(builtPrompt, inferenceParams, ct),
+                    () => _batchSessions.DestroySession(clientId, transientId));
+            }
+            await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
+        }
+        else
+        {
+            var sb = new StringBuilder();
+            if (batchSession != null)
+            {
+                await foreach (var token in batchSession.InferAsync(builtPrompt, inferenceParams, ct))
+                    sb.Append(token);
+            }
+            else
+            {
+                var transientId = $"_transient_{Guid.NewGuid():N}";
+                var transient = _batchSessions.CreateSession(clientId, transientId, req.Model);
+                try
+                {
+                    await foreach (var token in transient.InferAsync(builtPrompt, inferenceParams, ct))
+                        sb.Append(token);
+                }
+                finally { _batchSessions.DestroySession(clientId, transientId); }
+            }
+
+            var response = new
+            {
+                id = Guid.NewGuid().ToString("N"),
+                @object = "chat.completion",
+                created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                model = req.Model,
+                choices = new[]
+                {
+                    new
+                    {
+                        index = 0,
+                        message = new { role = "assistant", content = sb.ToString() },
+                        finish_reason = "stop"
+                    }
+                }
+            };
+            await SseStreamer.WriteJsonAsync(ctx.Response, response);
+        }
+    }
+
+    /// <summary>Wraps an async enumerable with a cleanup action that runs after enumeration completes (success or cancellation).</summary>
+    private static async IAsyncEnumerable<string> WithCleanup(IAsyncEnumerable<string> source, Action cleanup)
+    {
+        try { await foreach (var item in source) yield return item; }
+        finally { cleanup(); }
+    }
+
     private async Task HandleChatCompletionAsync(HttpListenerContext ctx, string clientId, CancellationToken ct)
     {
         var (req, ok, rawBody) = await ReadBodyOrErrorAsync<ChatCompletionRequest>(ctx, ct);
@@ -582,6 +840,12 @@ public sealed class RequestRouter : IRequestRouter
         // transcript-backed ProcessSession (identical client-facing behavior to KV sessions).
         if (IsProcessModel(req.Model))
         { await HandleProcessModelChatAsync(ctx, req, clientId, rawBody, ct); return; }
+
+        // Continuous batching path: when enabled in config, ALL inference routes through
+        // BatchedExecutor. When disabled (default), the standard SessionContext path is used.
+        // The outside world sees identical API either way — the server decides internally.
+        if (_batchSessions != null)
+        { await HandleBatchChatAsync(ctx, req, clientId, ct); return; }
 
         var session = ResolveSession(clientId, req.SessionId);
         if (session == null && req.SessionId != null)
@@ -2025,6 +2289,7 @@ public sealed class RequestRouter : IRequestRouter
         {
             try { _sessions.ResetAllForOverflow(); } catch { }
             try { _processSessions?.ResetAllForOverflow(); } catch { }
+            try { _batchSessions?.ResetAllForOverflow(); } catch { }
          }
 
     private static bool IsContextOverflow(Exception ex) =>
@@ -2203,6 +2468,195 @@ public sealed class RequestRouter : IRequestRouter
         {
             try { mtmd.ClearMedia(); } catch { }
         }
+    }
+
+    // ── Batch-aware session management wrappers ─────────────────
+    // These methods check if a session lives in the BatchSessionRegistry first.
+    // If found there, they operate on the batch session. Otherwise, they fall
+    // through to the standard SessionRegistry path. When continuous_batching is
+    // off (_batchSessions == null), they always use the standard path.
+
+    private async Task HandleCreateBatchSessionAsync(HttpListenerContext ctx, string? clientId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(clientId))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "Missing or unregistered X-Client-Id header", Type = "invalid_client" } }, 401);
+            return;
+        }
+
+        var req = await SseStreamer.ReadJsonAsync<CreateSessionRequest>(ctx.Request, ct);
+        if (req == null || string.IsNullOrEmpty(req.SessionId))
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = "session_id required", Type = "invalid_request" } }, 400);
+            return;
+        }
+
+        try
+        {
+            var requestedModelId = string.IsNullOrWhiteSpace(req.ModelId)
+                ? _models.MainModelId
+                : req.ModelId;
+
+            // Unknown model id: fall back to main model (same leniency as standard path)
+            if (_models.TryGetSlot(requestedModelId) == null)
+            {
+                _logger.Warn("Router", $"CreateBatchSession: model '{requestedModelId}' not configured — falling back to main model '{_models.MainModelId}'");
+                requestedModelId = _models.MainModelId;
+            }
+
+            var cid = clientId ?? throw new InvalidOperationException("clientId is null");
+            var batchReg = _batchSessions ?? throw new InvalidOperationException("Batch sessions not enabled");
+            var session = batchReg.CreateSession(cid, req.SessionId, requestedModelId, req.ToolsHash);
+            _logger.Info("Router", $"Created batch session '{req.SessionId}' on model '{requestedModelId}'");
+
+            await SseStreamer.WriteJsonAsync(ctx.Response, new
+            {
+                session_id = req.SessionId,
+                client_id = clientId,
+                model_id = requestedModelId,
+                tools_hash = req.ToolsHash,
+                context_size = session.ContextSize,
+                estimated_vram_mb = session.EstimatedVramMb
+            });
+        }
+        catch (Exception ex)
+        {
+            await SseStreamer.WriteJsonAsync(ctx.Response,
+                new ErrorResponse { Error = new() { Message = ex.Message, Type = "session_error" } }, 400);
+        }
+    }
+
+    private async Task HandlePrefillOrBatchAsync(HttpListenerContext ctx, string? clientId, string sessionId, CancellationToken ct)
+    {
+        if (_batchSessions != null)
+        {
+            var batchSession = _batchSessions.GetSession(clientId ?? "", sessionId);
+            if (batchSession != null)
+            {
+                var req = await SseStreamer.ReadJsonAsync<PrefillRequest>(ctx.Request, ct);
+                if (req == null || string.IsNullOrEmpty(req.Text))
+                {
+                    await SseStreamer.WriteJsonAsync(ctx.Response,
+                        new ErrorResponse { Error = new() { Message = "text required", Type = "invalid_request" } }, 400);
+                    return;
+                }
+                var (success, tokens, elapsedMs) = await batchSession.PrefillAsync(req.Text, ct);
+                await SseStreamer.WriteJsonAsync(ctx.Response, new { ok = true, message = $"Prefilled {tokens} tokens in {elapsedMs}ms", tokens = tokens, elapsed_ms = elapsedMs });
+                return;
+            }
+        }
+        await HandlePrefillAsync(ctx, clientId, sessionId, ct);
+    }
+
+    private async Task HandleRewindOrBatchAsync(HttpListenerContext ctx, string? clientId, string sessionId)
+    {
+        if (_batchSessions != null)
+        {
+            var batchSession = _batchSessions.GetSession(clientId ?? "", sessionId);
+            if (batchSession != null)
+            {
+                var success = await batchSession.RewindAsync();
+                await SseStreamer.WriteJsonAsync(ctx.Response, new { ok = success, message = success ? "Rewound to saved state" : "Rewind failed (no saved state)" });
+                return;
+            }
+        }
+        await HandleRewindAsync(ctx, clientId, sessionId);
+    }
+
+    private async Task HandleSaveStateOrBatchAsync(HttpListenerContext ctx, string? clientId, string sessionId)
+    {
+        if (_batchSessions != null)
+        {
+            var batchSession = _batchSessions.GetSession(clientId ?? "", sessionId);
+            if (batchSession != null)
+            {
+                var success = await batchSession.SaveStateAsync();
+                await SseStreamer.WriteJsonAsync(ctx.Response, new { ok = success, message = success ? "State saved" : "Save failed" });
+                return;
+            }
+        }
+        await HandleSaveStateAsync(ctx, clientId, sessionId);
+    }
+
+    private async Task HandleResetOrBatchAsync(HttpListenerContext ctx, string? clientId, string sessionId)
+    {
+        if (_batchSessions != null)
+        {
+            var batchSession = _batchSessions.GetSession(clientId ?? "", sessionId);
+            if (batchSession != null)
+            {
+                try { await batchSession.ResetAsync(); await SseStreamer.WriteJsonAsync(ctx.Response, new SuccessResponse { Message = "Batch session reset" }); }
+                catch (Exception ex) { await SseStreamer.WriteJsonAsync(ctx.Response, new ErrorResponse { Error = new() { Message = ex.Message, Type = "session_error" } }, 500); }
+                return;
+            }
+        }
+        await HandleResetAsync(ctx, clientId, sessionId);
+    }
+
+    private async Task HandleEvaluateOrBatchAsync(HttpListenerContext ctx, string? clientId, string sessionId, CancellationToken ct)
+    {
+        if (_batchSessions != null)
+        {
+            var batchSession = _batchSessions.GetSession(clientId ?? "", sessionId);
+            if (batchSession != null)
+            {
+                var req = await SseStreamer.ReadJsonAsync<EvaluateRequest>(ctx.Request, ct);
+                if (req == null || string.IsNullOrEmpty(req.Text))
+                {
+                    await SseStreamer.WriteJsonAsync(ctx.Response,
+                        new ErrorResponse { Error = new() { Message = "text required", Type = "invalid_request" } }, 400);
+                    return;
+                }
+                var maxTokens = req.MaxTokens ?? 1;
+                var (success, sampled, approx) = await batchSession.EvaluateAsync(req.Text, maxTokens, ct);
+                await SseStreamer.WriteJsonAsync(ctx.Response, new { ok = success, message = $"Evaluated {sampled} tokens", sampled_tokens = sampled, approx_tokens = approx });
+                return;
+            }
+        }
+        await HandleEvaluateAsync(ctx, clientId, sessionId, ct);
+    }
+
+    private async Task HandleSessionStatusOrBatchAsync(HttpListenerContext ctx, string? clientId, string sessionId)
+    {
+        if (_batchSessions != null)
+        {
+            var batchSession = _batchSessions.GetSession(clientId ?? "", sessionId);
+            if (batchSession != null)
+            {
+                await SseStreamer.WriteJsonAsync(ctx.Response, new
+                {
+                    session_id = batchSession.SessionId,
+                    client_id = batchSession.ClientId,
+                    model_id = batchSession.ModelId,
+                    is_prefilled = batchSession.IsPrefilled,
+                    has_saved_state = batchSession.HasSavedState,
+                    approx_tokens = batchSession.ApproxTokenCount,
+                    context_size = batchSession.ContextSize,
+                    estimated_vram_mb = batchSession.EstimatedVramMb,
+                    created_at = batchSession.CreatedAt.ToString("o"),
+                    last_activity = batchSession.LastActivity.ToString("o")
+                });
+                return;
+            }
+        }
+        await HandleSessionStatusAsync(ctx, clientId, sessionId);
+    }
+
+    private async Task HandleDestroySessionOrBatchAsync(HttpListenerContext ctx, string? clientId, string sessionId)
+    {
+        if (_batchSessions != null)
+        {
+            var batchSession = _batchSessions.GetSession(clientId ?? "", sessionId);
+            if (batchSession != null)
+            {
+                var success = _batchSessions.DestroySession(clientId ?? "", sessionId);
+                await SseStreamer.WriteJsonAsync(ctx.Response, new { ok = success, message = success ? $"Batch session '{sessionId}' destroyed" : $"Failed to destroy batch session '{sessionId}'" });
+                return;
+            }
+        }
+        await HandleDestroySessionAsync(ctx, clientId, sessionId);
     }
 
 }

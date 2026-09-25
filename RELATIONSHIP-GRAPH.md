@@ -1,12 +1,16 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantLLM
 
-Generated: 2026-09-24T20:58:20.697996+00:00
-Edges: 27  |  Packages: 2
+Generated: 2026-09-25T00:30:06.670215+00:00
+Edges: 31  |  Packages: 2
 
 ---
 
 ## ECAssistantLLM
 
+- BatchInferenceCoordinator ──uses──► ILogger (ECAssistantLLM)
+- BatchSession ──uses──► ILogger (ECAssistantLLM)
+- BatchSessionRegistry ──uses──► ILogger (ECAssistantLLM)
+- BatchedExecutorHost ──uses──► ILogger (ECAssistantLLM)
 - ClientManager ──implements──► IClientManager (ECAssistantLLM)
 - ClientManager ──uses──► ILogger (ECAssistantLLM)
 - ClientManager ──uses──► ILogger (ECAssistantLLM)

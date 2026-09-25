@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-24T20:58:20.697446+00:00
-Packages: 2  |  Types: 188
+Generated: 2026-09-25T00:30:06.669766+00:00
+Packages: 2  |  Types: 210
 
 ---
 
-## ECAssistantLLM (138 types, ~10426 LOC)
+## ECAssistantLLM (151 types, ~12479 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -17,6 +17,19 @@ Packages: 2  |  Types: 188
 - 🟡 BackendSelector  (ECAssistantLLM)
 - 🟡 BackendSelectorTests  (ECAssistantLLM)
 - 🟡 BackendsSection  (ECAssistantLLM)
+- 🟡 BatchBackwardCompatTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 BatchChatCompletionTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 BatchConfigTests  (ECAssistantLLM)
+- 🟡 BatchInferenceCoordinator : IDisposable  (ECAssistantLLM)  deps: [BatchedExecutor, ILogger, string]
+- 🟡 BatchServerCollection : ICollectionFixture<BatchServerFixture>  (ECAssistantLLM)
+- 🟡 BatchServerFixture : IAsyncLifetime  (ECAssistantLLM)
+- 🟡 BatchSession : IDisposable  (ECAssistantLLM)  deps: [string, string, string, BatchInferenceCoordinator, ILogger]
+- 🟡 BatchSessionBufferTests  (ECAssistantLLM)
+- 🟡 BatchSessionLifecycleTests  (ECAssistantLLM)  deps: [TestServerFixture]
+- 🟡 BatchSessionRegistry : IDisposable  (ECAssistantLLM)  deps: [BatchedExecutorHost, LlmServerConfig, ILogger]
+- 🟡 BatchSessionRegistryTests  (ECAssistantLLM)
+- 🟡 BatchVsStandardComparisonTests  (ECAssistantLLM)  deps: [BatchServerFixture]
+- 🟡 BatchedExecutorHost : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, LlmServerConfig, ILogger]
 - 🟡 ChatCompletionChunk  (ECAssistantLLM)
 - 🟡 ChatCompletionRequest  (ECAssistantLLM)
 - 🟡 ChatCompletionTests  (ECAssistantLLM)  deps: [TestServerFixture]
@@ -66,7 +79,7 @@ Packages: 2  |  Types: 188
 - 🟡 InvalidToolCallException : Exception  (ECAssistantLLM)  deps: [string]
 - 🟡 JsonSchemaGrammarConverter  (ECAssistantLLM)
 - 🟡 KvCacheTests  (ECAssistantLLM)  deps: [TestServerFixture]
-- 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =, IProcessModelHost? processModelHost =, ProcessSessionRegistry? processSessionRegistry =]
+- 🟡 LlmHttpServer : IDisposable  (ECAssistantLLM)  deps: [LlmServerConfig, MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, ILogger, CancellationTokenSource? externalCts =, IProcessModelHost? processModelHost =, ProcessSessionRegistry? processSessionRegistry =, BatchSessionRegistry? batchSessionRegistry =]
 - 🟡 LlmServerConfig  (ECAssistantLLM)
 - 🟡 LlmServerConfigTests : IDisposable  (ECAssistantLLM)
 - 🟡 LlmServerInfo  (ECAssistantLLM)
@@ -99,7 +112,7 @@ Packages: 2  |  Types: 188
 - 🟡 ProcessSessionStructuredTests  (ECAssistantLLM)
 - 🟡 ProcessStatelessClientTests  (ECAssistantLLM)
 - 🟡 ProxyRequestHandler  (ECAssistantLLM)
-- 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource, IProcessModelHost? processHost =, ProcessSessionRegistry? processSessions =]
+- 🟡 RequestRouter : IRequestRouter  (ECAssistantLLM)  deps: [MultiModelHost, SessionRegistry, IInferenceScheduler, VramBudget, IClientManager, LlmServerConfig, ILogger, CancellationTokenSource, IProcessModelHost? processHost =, ProcessSessionRegistry? processSessions =, BatchSessionRegistry? batchSessions =]
 - 🟡 RewindResponse  (ECAssistantLLM)
 - 🟡 RootPathGuard  (ECAssistantLLM)
 - 🟡 RootPathGuardTests : IDisposable  (ECAssistantLLM)
@@ -146,10 +159,19 @@ Packages: 2  |  Types: 188
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (50 types, ~4479 LOC)
+## Tests (59 types, ~5490 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
+- 🟡 BatchBackwardCompatTests  (Tests)  deps: [TestServerFixture]
+- 🟡 BatchChatCompletionTests  (Tests)  deps: [TestServerFixture]
+- 🟡 BatchConfigTests  (Tests)
+- 🟡 BatchServerCollection : ICollectionFixture<BatchServerFixture>  (Tests)
+- 🟡 BatchServerFixture : IAsyncLifetime  (Tests)
+- 🟡 BatchSessionBufferTests  (Tests)
+- 🟡 BatchSessionLifecycleTests  (Tests)  deps: [TestServerFixture]
+- 🟡 BatchSessionRegistryTests  (Tests)
+- 🟡 BatchVsStandardComparisonTests  (Tests)  deps: [BatchServerFixture]
 - 🟡 ChatCompletionTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ChatMessageContentConverterTests  (Tests)
 - 🟡 ClientAuthTests  (Tests)

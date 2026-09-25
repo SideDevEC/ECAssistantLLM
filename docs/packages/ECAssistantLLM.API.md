@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 138  |  LOC: 10426  |  ~5790 tokens
+Types: 151  |  LOC: 12479  |  ~6597 tokens
 
 ---
 
@@ -63,6 +63,80 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, Xun
 
 ### Class: BackendsSection
 > Configuration for the backend subsystem: where the pre-installed external
+
+### Class: BatchBackwardCompatTests
+> Integration tests for backward compatibility — verifies that the standard
+Constructor:
+  - BatchBackwardCompatTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchChatCompletionTests
+> Integration tests for chat completions via the batch path.
+Constructor:
+  - BatchChatCompletionTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchConfigTests
+> Unit tests for BatchSessionRegistry — session CRUD, namespacing, limits.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
+
+### Class: BatchInferenceCoordinator
+> Coordinates <see cref="BatchedExecutor.Infer"/> calls across all active batch sessions
+Implements: IDisposable
+Constructor:
+  - BatchInferenceCoordinator(BatchedExecutor executor, ILogger logger, string modelId)
+Cross-package deps: LLama, LLama.Batched, LLama.Native
+
+### Class: BatchServerCollection
+> Collection definition for the batch test server fixture.
+Implements: ICollectionFixture<BatchServerFixture>
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchServerFixture
+> Second test fixture — identical to <see cref="TestServerFixture"/> but with
+Implements: IAsyncLifetime
+Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Server
+
+### Class: BatchSession
+> Wraps a <see cref="Conversation"/> on a shared <see cref="BatchedExecutor"/>.
+Implements: IDisposable
+Constructor:
+  - BatchSession(string clientId, string sessionId, string modelId, BatchInferenceCoordinator coordinator, ILogger logger)
+Cross-package deps: LLama, LLama.Batched, LLama.Common, LLama.Native, LLama.Sampling
+
+### Class: BatchSessionBufferTests
+> Unit tests for BatchSession buffer behavior — no model required.
+Cross-package deps: ECAssistant.LLM.Engine
+
+### Class: BatchSessionLifecycleTests
+> Integration tests for the session lifecycle.
+Constructor:
+  - BatchSessionLifecycleTests(TestServerFixture fixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchSessionRegistry
+> Registry of batch sessions (sub-agent / stateless) when <c>continuous_batching</c>
+Implements: IDisposable
+Constructor:
+  - BatchSessionRegistry(BatchedExecutorHost host, LlmServerConfig config, ILogger logger)
+Cross-package deps: ECAssistant.LLM.Config
+
+### Class: BatchSessionRegistryTests
+> Unit tests for BatchSessionRegistry — session CRUD, namespacing, limits.
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
+
+### Class: BatchVsStandardComparisonTests
+> Collection definition for the batch test server fixture.
+Constructor:
+  - BatchVsStandardComparisonTests(BatchServerFixture batchFixture)
+Cross-package deps: ECAssistant.LLM.Tests.Fixtures
+
+### Class: BatchedExecutorHost
+> Owns <see cref="BatchedExecutor"/> instances — one per loaded in-process model —
+Implements: IDisposable
+Constructor:
+  - BatchedExecutorHost(MultiModelHost modelHost, LlmServerConfig config, ILogger logger)
+Cross-package deps: LLama, LLama.Batched, LLama.Common, LLama.Native, ECAssistant.LLM.Config
 
 ### Class: ChatCompletionChunk
 > SSE streaming chunk (OpenAI format).
@@ -254,7 +328,7 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > Main HTTP server using HttpListener. Routes requests to OpenAI and ECAssistant endpoints.
 Implements: IDisposable
 Constructor:
-  - LlmHttpServer(LlmServerConfig config, MultiModelHost modelHost, SessionRegistry sessionRegistry, IInferenceScheduler scheduler, VramBudget vramBudget, IClientManager clientManager, ILogger logger, CancellationTokenSource? externalCts = null, IProcessModelHost? processModelHost = null, Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null)
+  - LlmHttpServer(LlmServerConfig config, MultiModelHost modelHost, SessionRegistry sessionRegistry, IInferenceScheduler scheduler, VramBudget vramBudget, IClientManager clientManager, ILogger logger, CancellationTokenSource? externalCts = null, IProcessModelHost? processModelHost = null, Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null, BatchSessionRegistry? batchSessionRegistry = null)
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models, ECAssistant.LLM.Server
 
 ### Class: LlmServerConfig
@@ -400,7 +474,7 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECA
 > Routes incoming HTTP requests to the appropriate handler.
 Implements: IRequestRouter
 Constructor:
-  - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts, IProcessModelHost? processHost = null, ProcessSessionRegistry? processSessions = null)
+  - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts, IProcessModelHost? processHost = null, ProcessSessionRegistry? processSessions = null, BatchSessionRegistry? batchSessions = null)
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models
 
 ### Class: RewindResponse
