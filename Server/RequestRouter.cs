@@ -678,7 +678,8 @@ public sealed class RequestRouter : IRequestRouter
                 var transient = _batchSessions.CreateSession(clientId, transientId, req.Model);
                 try
                 {
-                    await foreach (var token in transient.InferAsync(builtPrompt, toolsParams, ct))
+                    await foreach (var token in transient.InferAsync(builtPrompt, toolsParams, ct,
+                        grammarStr: ToolCallGrammarFactory.Build(req.Tools!), grammarRoot: ToolCallGrammarFactory.Root))
                     {
                         toolsSb.Append(token);
                         if (TryParseCompleteJson(toolsSb.ToString())) { toolsEarlyStop = true; break; }
@@ -1972,10 +1973,12 @@ public sealed class RequestRouter : IRequestRouter
         string prompt,
         SamplingConfig samplingConfig,
         IReadOnlyList<byte[]>? images,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? grammarStr = null,
+        string? grammarRoot = null)
         => images is { Count: > 0 }
             ? StatelessVisionInferAsync(slot, prompt, samplingConfig, images, ct)
-            : StatelessInferAsync(slot, prompt, samplingConfig, ct);
+            : StatelessInferAsync(slot, prompt, samplingConfig, ct, grammarStr, grammarRoot);
 
     private static string ExtractSessionIdFromPath(string path, string suffix)
     {
@@ -2193,7 +2196,8 @@ public sealed class RequestRouter : IRequestRouter
         {
         if (session != null)
         {
-            await foreach (var token in session.InferAsync(prompt, toolsParams, ct, images))
+            await foreach (var token in session.InferAsync(prompt, toolsParams, ct, images,
+                grammarStr: ToolCallGrammarFactory.Build(req.Tools!), grammarRoot: ToolCallGrammarFactory.Root))
             {
                 sb.Append(token);
                 if (TryParseCompleteJson(sb.ToString())) { earlyStop = true; break; }
@@ -2201,7 +2205,8 @@ public sealed class RequestRouter : IRequestRouter
         }
         else
         {
-            await foreach (var token in CreateStatelessStream(templateSlot, prompt, toolsParams, images, ct))
+            await foreach (var token in CreateStatelessStream(templateSlot, prompt, toolsParams, images, ct,
+                grammarStr: ToolCallGrammarFactory.Build(req.Tools!), grammarRoot: ToolCallGrammarFactory.Root))
             {
                 sb.Append(token);
                 if (TryParseCompleteJson(sb.ToString())) { earlyStop = true; break; }
@@ -2338,6 +2343,7 @@ public sealed class RequestRouter : IRequestRouter
             TopK = req.TopK ?? 40,
             RepeatPenalty = req.RepeatPenalty ?? 1.1f,
             MaxTokens = Math.Clamp(req.MaxTokens ?? 1024, 1, MaxInferenceTokens),
+            IgnoreEos = true,  // grammar constrains output — don't let EOS end generation prematurely
         };
 
     // Grammar support: not yet available in ECAssistantInference. Decision envelope
@@ -2350,6 +2356,7 @@ public sealed class RequestRouter : IRequestRouter
             TopK = req.TopK ?? 40,
             RepeatPenalty = req.RepeatPenalty ?? 1.1f,
             MaxTokens = Math.Clamp(maxTokens, 1, MaxInferenceTokens),
+            IgnoreEos = true,
         };
 
     private static SamplingConfig CreateInferenceParams(CompletionRequest req)
@@ -2375,27 +2382,44 @@ public sealed class RequestRouter : IRequestRouter
         ModelSlot slot,
         string prompt,
         SamplingConfig samplingConfig,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default,
+        string? grammarStr = null,
+        string? grammarRoot = null)
     {
         using var ctx = slot.Model!.CreateContext(SessionRegistry.CreateCtxConfig(slot.Config, slot.EffectiveGpuLayers));
         using var exec = ctx.CreateExecutor();
-        exec.Prompt(prompt);
-        if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
-            yield break;
-
-        var maxTokens = samplingConfig.MaxTokens;
-        for (int i = 0; i < maxTokens; i++)
+        IGrammar? grammar = null;
+        if (!string.IsNullOrEmpty(grammarStr) && !string.IsNullOrEmpty(grammarRoot))
         {
-            int token;
-            try { token = exec.Sample(samplingConfig); }
-            catch { break; }
-            if (ctx.IsEos(token)) break;
-            var piece = ctx.TokenToPiece(token);
-            yield return piece;
-            exec.PromptTokens(new[] { token });
-            if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
-                break;
+            try { grammar = slot.Model!.CreateGrammar(grammarStr, grammarRoot); }
+            catch { }
         }
+        try
+        {
+            exec.Prompt(prompt);
+            if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
+                yield break;
+
+            var maxTokens = samplingConfig.MaxTokens;
+            for (int i = 0; i < maxTokens; i++)
+            {
+                int token;
+                try
+                {
+                    token = grammar != null
+                        ? exec.SampleWithGrammar(samplingConfig, grammar)
+                        : exec.Sample(samplingConfig);
+                }
+                catch { break; }
+                if (ctx.IsEos(token)) break;
+                var piece = ctx.TokenToPiece(token);
+                yield return piece;
+                exec.PromptTokens(new[] { token });
+                if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
+                    break;
+            }
+        }
+        finally { grammar?.Dispose(); }
     }
 
     private static async IAsyncEnumerable<string> StatelessVisionInferAsync(
