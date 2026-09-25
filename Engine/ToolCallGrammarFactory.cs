@@ -17,14 +17,19 @@ public static class ToolCallGrammarFactory
     /// <summary>Root rule name of the generated grammar.</summary>
     public const string Root = "root";
 
-    public static string Build(IReadOnlyList<Models.OpenAiToolSpec> tools)
+    public static string Build(IReadOnlyList<Models.OpenAiToolSpec> tools, int maxParallelToolCalls = 3)
     {
+        if (maxParallelToolCalls < 1) maxParallelToolCalls = 1;
         var valid = tools.Where(t => t.IsValid).ToList();
         if (valid.Count == 0)
             throw new ArgumentException("At least one valid function tool is required", nameof(tools));
 
         var sb = new StringBuilder();
-        sb.AppendLine("root ::= \"[\" ws toolcall (\",\" ws toolcall)* ws \"]\"");
+        // Bounded repetition: unbounded arrays let the model loop objects forever at
+        // low temp, truncating at max_tokens mid-JSON (flaky 422s on both paths).
+        // The bound (inference.max_parallel_tool_calls, default 3) forces "]" after
+        // maxParallelToolCalls+1 calls, guaranteeing parseable output within budget.
+        sb.AppendLine($"root ::= \"[\" ws toolcall (\",\" ws toolcall){{0,{maxParallelToolCalls - 1}}} ws \"]\"");
         sb.AppendLine(JsonSchemaGrammarConverter.StringRule);
         sb.AppendLine("integer ::= \"-\"? [0-9]+");
         sb.AppendLine("number ::= integer (\".\" [0-9]+)?");

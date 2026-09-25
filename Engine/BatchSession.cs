@@ -272,6 +272,12 @@ public sealed class BatchSession : IDisposable
         if (!string.IsNullOrEmpty(effectivePrompt))
             _ops.EnqueuePrompt(effectivePrompt, images);
 
+        // Grammar-constrained generation: reset sampler state so the grammar starts
+        // at position 0 for THIS generation (conversation re-prompts each generated
+        // piece as text, so state would otherwise leak from the previous generation)
+        if (grammar != null)
+            _conversation.ResetGrammarState();
+
         while (generated < maxTokens)
         {
             if (_retired || _conversationDisposed)

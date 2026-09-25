@@ -354,7 +354,7 @@ public sealed class RequestRouter : IRequestRouter
                     _logger.Warn("Router", $"[Tools/process] session {procSession.SessionId} toolset changed ({(prevHash ?? "unpinned")[..Math.Min(8, (prevHash ?? "unpinned").Length)]} → {fingerprint[..8]}) — updating pin");
                     procSession.ToolsHash = fingerprint;
                 }
-                toolsStream = procSession.InferAsync(req.Messages, req, ct, grammar: ToolCallGrammarFactory.Build(tools));
+                toolsStream = procSession.InferAsync(req.Messages, req, ct, grammar: ToolCallGrammarFactory.Build(tools, _config.Inference.MaxParallelToolCalls));
                 sessionLabel = req.SessionId;
             }
             else
@@ -367,7 +367,7 @@ public sealed class RequestRouter : IRequestRouter
                 }
                 var toolsMaxTokens = Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
                 toolsStream = _processStateless.InferStatelessAsync(
-                    req.Model, req.Messages, req, grammar: ToolCallGrammarFactory.Build(tools), toolsMaxTokens, ct);
+                    req.Model, req.Messages, req, grammar: ToolCallGrammarFactory.Build(tools, _config.Inference.MaxParallelToolCalls), toolsMaxTokens, ct);
                 sessionLabel = "stateless";
             }
 
@@ -656,7 +656,7 @@ public sealed class RequestRouter : IRequestRouter
                 batchSession.ToolsHash = fingerprint;
             }
 
-            var grammar = ToolCallGrammarFactory.Build(tools);
+            var grammar = ToolCallGrammarFactory.Build(tools, _config.Inference.MaxParallelToolCalls);
             var toolsParams = CreateGrammarInferenceParams(grammar, req.Temperature, req.TopP, req.TopK, req.RepeatPenalty,
                 Math.Clamp(EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens));
 
@@ -665,7 +665,7 @@ public sealed class RequestRouter : IRequestRouter
 
             if (batchSession != null)
             {
-                await foreach (var token in batchSession.InferAsync(builtPrompt, toolsParams, ct, grammarStr: ToolCallGrammarFactory.Build(req.Tools!), grammarRoot: ToolCallGrammarFactory.Root))
+                await foreach (var token in batchSession.InferAsync(builtPrompt, toolsParams, ct, grammarStr: ToolCallGrammarFactory.Build(req.Tools!, _config.Inference.MaxParallelToolCalls), grammarRoot: ToolCallGrammarFactory.Root))
                 {
                     toolsSb.Append(token);
                     if (TryParseCompleteJson(toolsSb.ToString())) { toolsEarlyStop = true; break; }
@@ -679,7 +679,7 @@ public sealed class RequestRouter : IRequestRouter
                 try
                 {
                     await foreach (var token in transient.InferAsync(builtPrompt, toolsParams, ct,
-                        grammarStr: ToolCallGrammarFactory.Build(req.Tools!), grammarRoot: ToolCallGrammarFactory.Root))
+                        grammarStr: ToolCallGrammarFactory.Build(req.Tools!, _config.Inference.MaxParallelToolCalls), grammarRoot: ToolCallGrammarFactory.Root))
                     {
                         toolsSb.Append(token);
                         if (TryParseCompleteJson(toolsSb.ToString())) { toolsEarlyStop = true; break; }
@@ -696,7 +696,7 @@ public sealed class RequestRouter : IRequestRouter
             }
             catch (InvalidToolCallException ex)
             {
-                _logger.Warn("Router", $"[Tools/batch] decode failed: {ex.Message}");
+                _logger.Warn("Router", $"[Tools/batch] decode failed: {ex.Message} | raw: {toolsSb.ToString()[..Math.Min(toolsSb.Length, 400)]}");
                 await SseStreamer.WriteJsonAsync(ctx.Response,
                     new ErrorResponse { Error = new() { Message = $"Invalid tool_calls output: {ex.Message}", Type = "invalid_tool_calls" } }, 422);
             }
@@ -2197,7 +2197,7 @@ public sealed class RequestRouter : IRequestRouter
         if (session != null)
         {
             await foreach (var token in session.InferAsync(prompt, toolsParams, ct, images,
-                grammarStr: ToolCallGrammarFactory.Build(req.Tools!), grammarRoot: ToolCallGrammarFactory.Root))
+                grammarStr: ToolCallGrammarFactory.Build(req.Tools!, _config.Inference.MaxParallelToolCalls), grammarRoot: ToolCallGrammarFactory.Root))
             {
                 sb.Append(token);
                 if (TryParseCompleteJson(sb.ToString())) { earlyStop = true; break; }
@@ -2206,7 +2206,7 @@ public sealed class RequestRouter : IRequestRouter
         else
         {
             await foreach (var token in CreateStatelessStream(templateSlot, prompt, toolsParams, images, ct,
-                grammarStr: ToolCallGrammarFactory.Build(req.Tools!), grammarRoot: ToolCallGrammarFactory.Root))
+                grammarStr: ToolCallGrammarFactory.Build(req.Tools!, _config.Inference.MaxParallelToolCalls), grammarRoot: ToolCallGrammarFactory.Root))
             {
                 sb.Append(token);
                 if (TryParseCompleteJson(sb.ToString())) { earlyStop = true; break; }
