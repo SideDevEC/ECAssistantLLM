@@ -234,6 +234,14 @@ public sealed class BatchSession : IDisposable
                     return (false, 0, 0);
                 }
 
+                // Retired while queued: the graveyard cleanup disposed the conversation
+                // and our buffered prompt was never applied — must NOT report success.
+                if (_retired || _conversationDisposed)
+                {
+                    _logger.Warn("BatchSession", $"[{Key}] Session retired during prefill — aborting");
+                    return (false, 0, 0);
+                }
+
                 var applyError = TakeLastApplyError();
                 if (applyError != null)
                 {
@@ -349,6 +357,15 @@ public sealed class BatchSession : IDisposable
 
         while (generated < maxTokens)
         {
+            // Retired/disposed mid-stream (disconnect raced a live generation): abort the
+            // loop — the graveyard cleanup may have disposed this conversation inside the
+            // cycle gate, so Sample() on it would be a native crash.
+            if (_retired || _conversationDisposed)
+            {
+                _logger.Warn("BatchSession", $"[{Key}] Session retired mid-generation — aborting stream");
+                break;
+            }
+
             // Coordinator: dispose graveyard → apply ops FIFO → Infer() → return
             DecodeResult result;
             try
@@ -359,6 +376,14 @@ public sealed class BatchSession : IDisposable
             {
                 throw new LLama.Exceptions.ContextOverflowException(
                     $"[{Key}] Context overflowed during generation: {ex.Message}");
+            }
+
+            // Re-check: graveyard cleanup may have disposed this conversation while we
+            // waited on the cycle gate.
+            if (_conversationDisposed || _retired)
+            {
+                _logger.Warn("BatchSession", $"[{Key}] Session retired while awaiting cycle — aborting stream");
+                break;
             }
 
             var applyError = TakeLastApplyError();
@@ -529,6 +554,10 @@ public sealed class BatchSession : IDisposable
 
                 var applyError = TakeLastApplyError();
                 if (applyError != null)
+                    return (false, 0, _approxTokenCount);
+
+                // Retired while queued: our buffered prompt was never applied.
+                if (_retired || _conversationDisposed)
                     return (false, 0, _approxTokenCount);
 
                 // Sample and discard up to maxTokens tokens.
