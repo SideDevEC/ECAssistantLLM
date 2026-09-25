@@ -12,7 +12,7 @@ public sealed class BackendSelectorTests
     public void Select_StandardGguf_DefaultsToLlamaSharp()
     {
         var cfg = new ModelConfig { Id = "main", Path = "/nonexistent/qwen3-8b-q4_k_m.gguf" };
-        Assert.Equal(ModelBackendKind.LlamaSharp, _selector.Select(cfg));
+        Assert.Equal(ModelBackendKind.Native, _selector.Select(cfg));
     }
 
     [Fact]
@@ -25,8 +25,8 @@ public sealed class BackendSelectorTests
     [Fact]
     public void Select_OverrideLlamaSharp_WinsOverDetection()
     {
-        var cfg = new ModelConfig { Id = "m", Path = "/nonexistent/standard.gguf", Backend = "llamasharp" };
-        Assert.Equal(ModelBackendKind.LlamaSharp, _selector.Select(cfg));
+        var cfg = new ModelConfig { Id = "m", Path = "/nonexistent/standard.gguf", Backend = "native" };
+        Assert.Equal(ModelBackendKind.Native, _selector.Select(cfg));
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public sealed class BackendSelectorTests
     {
         // Unresolvable path → detector returns false → default backend.
         var cfg = new ModelConfig { Id = "m", Path = "/definitely/not/here.gguf", Backend = "auto" };
-        Assert.Equal(ModelBackendKind.LlamaSharp, _selector.Select(cfg));
+        Assert.Equal(ModelBackendKind.Native, _selector.Select(cfg));
     }
 
     [Fact]

@@ -2,6 +2,8 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using ECAssistant.LLM.Config;
+using ECAssistantInference.Abstractions;
+using ECAssistantInference.Models;
 using ECAssistant.LLM.Engine;
 using ECAssistant.LLM.Engine.Backends;
 using ECAssistant.LLM.Interfaces;
@@ -604,7 +606,7 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         var templateSlot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
-        if (templateSlot?.Weights == null)
+        if (templateSlot?.Model == null)
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
@@ -858,7 +860,7 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         var templateSlot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
-        if (templateSlot?.Weights == null)
+        if (templateSlot?.Model == null)
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
@@ -913,14 +915,14 @@ public sealed class RequestRouter : IRequestRouter
                 EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
             var structuredParams = CreateStructuredInferenceParams(req, structuredMaxTokens);
             // v15: same headroom clamp for the structured session path (see below).
-            if (session != null) ClampToSessionHeadroom(session, structuredParams, structured: true);
+            if (session != null) structuredParams = ClampToSessionHeadroom(session, structuredParams, structured: true);
             var structuredSb = new StringBuilder();
             var earlyStop = false;
             try
             {
             if (session != null)
             {
-                await foreach (var token in session.InferAsync(prompt, structuredParams, ct, images))
+                await foreach (var token in session.InferAsync(prompt, structuredParams, ct, images, DecisionGrammar.BuildGbnf(req.ToolNames), DecisionGrammar.Root))
                 {
                     structuredSb.Append(token);
                     // v14.7: Early termination — stop generation as soon as we have
@@ -1028,7 +1030,7 @@ public sealed class RequestRouter : IRequestRouter
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
-                tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images), ct);
+                tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images, req.Grammar), ct);
             }
             else
             {
@@ -1050,7 +1052,7 @@ public sealed class RequestRouter : IRequestRouter
             {
             if (session != null)
             {
-                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images), ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images, req.Grammar), ct))
                 {
                     sb.Append(token);
                     if (req.Grammar != null && TryParseCompleteJson(sb.ToString())) break;
@@ -1122,7 +1124,7 @@ public sealed class RequestRouter : IRequestRouter
         }
 
         var slot = _models.TryGetSlot(req.Model) ?? _models.TryGetSlot(_models.MainModelId);
-        if (slot?.Weights == null)
+        if (slot?.Model == null)
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "Model not loaded", Type = "model_error" } }, 503);
@@ -1144,7 +1146,7 @@ public sealed class RequestRouter : IRequestRouter
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
-                tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct), ct);
+                tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, grammarStr: null), ct);
             }
             else
             {
@@ -1166,7 +1168,7 @@ public sealed class RequestRouter : IRequestRouter
             {
             if (session != null)
             {
-                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct), ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, grammarStr: null), ct))
                     sb.Append(token);
             }
             else
@@ -1220,7 +1222,7 @@ public sealed class RequestRouter : IRequestRouter
         // JSON null overrides the DTO default — null-guard before TryGetSlot (M-10).
         if (req.Model != null && await TryProxyProcessModelAsync(ctx, req.Model, null, ct)) return;
         var slot = (req.Model != null ? _models.TryGetSlot(req.Model) : null) ?? _models.GetEmbeddingSlot();
-        if (slot == null || !slot.IsEmbedding || slot.Embedder == null)
+        if (slot == null || !slot.IsEmbedding || slot.Model == null)
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "Embedding model not available", Type = "model_error" } }, 503);
@@ -1229,15 +1231,15 @@ public sealed class RequestRouter : IRequestRouter
 
         try
         {
-            var embeddings = await slot.Embedder.GetEmbeddings(req.Input);
+            using var embCtx = slot.Model.CreateContext(SessionRegistry.CreateCtxConfig(slot.Config, slot.EffectiveGpuLayers));
+            var embedding = slot.Model.GetEmbeddings(embCtx, req.Input);
             var response = new EmbeddingResponse
             {
                 Model = slot.Id,
-                Data = embeddings.Select((emb, i) => new EmbeddingData
+                Data = new List<EmbeddingData>
                 {
-                    Embedding = emb,
-                    Index = i
-                }).ToList()
+                    new() { Embedding = embedding, Index = 0 }
+                }
             };
             await SseStreamer.WriteJsonAsync(ctx.Response, response);
         }
@@ -1851,15 +1853,15 @@ public sealed class RequestRouter : IRequestRouter
             return;
         }
 
-        // Use LLamaSharp tokenizer via a temporary context. Weights can be null for
+        // Use tokenizer via a temporary context. Model can be null for
         // embedding-only slots (and are null before LoadAllAsync completes) — guard the NRE.
-        if (slot.Weights == null)
+        if (slot.Model == null)
         {
             await SseStreamer.WriteJsonAsync(ctx.Response,
                 new ErrorResponse { Error = new() { Message = "Model weights not loaded", Type = "model_error" } }, 503);
             return;
         }
-        using var tempCtx = slot.Weights.CreateContext(slot.Params);
+        using var tempCtx = slot.Model.CreateContext(SessionRegistry.CreateCtxConfig(slot.Config, slot.EffectiveGpuLayers));
         var tokenIds = tempCtx.Tokenize(req.Text, addBos: false).Select(t => (int)t).ToArray();
         await SseStreamer.WriteJsonAsync(ctx.Response, new TokenizeResponse
         {
@@ -1968,12 +1970,12 @@ public sealed class RequestRouter : IRequestRouter
     private IAsyncEnumerable<string> CreateStatelessStream(
         ModelSlot slot,
         string prompt,
-        LLama.Common.InferenceParams inferenceParams,
+        SamplingConfig samplingConfig,
         IReadOnlyList<byte[]>? images,
         CancellationToken ct)
         => images is { Count: > 0 }
-            ? StatelessVisionInferAsync(slot, prompt, inferenceParams, images, ct)
-            : StatelessInferAsync(slot, prompt, inferenceParams, ct);
+            ? StatelessVisionInferAsync(slot, prompt, samplingConfig, images, ct)
+            : StatelessInferAsync(slot, prompt, samplingConfig, ct);
 
     private static string ExtractSessionIdFromPath(string path, string suffix)
     {
@@ -1999,8 +2001,7 @@ public sealed class RequestRouter : IRequestRouter
 
     private static string BuildPromptFromMessages(ModelSlot slot, List<ChatMessage> messages)
     {
-        // Fall back to a plain transcript when the model weights aren't loaded.
-        if (slot.Weights == null)
+        if (slot.Model == null)
         {
             var sb = new StringBuilder();
             foreach (var msg in messages)
@@ -2008,54 +2009,33 @@ public sealed class RequestRouter : IRequestRouter
             return sb.ToString();
         }
 
-        // Apply the model's embedded chat template (e.g. Qwen <|im_start|>) instead of a
-        // raw "role: content" transcript — raw text makes instruct models hallucinate turns.
-        var template = new LLama.LLamaTemplate(slot.Weights.NativeHandle) { AddAssistant = true };
-        foreach (var msg in messages)
-            template.Add(msg.Role.ToLowerInvariant(), msg.Content);
-        return LLama.Transformers.PromptTemplateTransformer.ToModelPrompt(template);
+        // Use the model's built-in chat template via eci_apply_chat_template.
+        // Pass null template → llama.cpp selects the model's default (Qwen, Llama, ChatML, etc.)
+        var chatMessages = messages
+            .Select(m => (m.Role.ToLowerInvariant(), m.Content))
+            .ToList();
+        return slot.Model.ApplyChatTemplate(null, chatMessages, addAssistant: true);
     }
 
-    private LLama.Common.InferenceParams CreateInferenceParams(ChatCompletionRequest req)
+    private SamplingConfig CreateInferenceParams(ChatCompletionRequest req)
     {
-        // Per-model output budget: req wins, then catalog-configured model default
-        // (thinking models need more room than the global default).
         var maxTokens = req.MaxTokens;
         if (maxTokens is null && !string.IsNullOrEmpty(req.Model))
         {
-            // Config lookup covers process-backend models and cold starts (TryGetSlot may be null)
             var perModel = _config.Models
                 .FirstOrDefault(m => m.Id.Equals(req.Model, StringComparison.OrdinalIgnoreCase))?.MaxTokens ?? 0;
             if (perModel > 0) maxTokens = perModel;
         }
-        // v14.10: caller-supplied GBNF grammar (e.g. VisionStructure) — constrain at the sampler.
-        if (!string.IsNullOrEmpty(req.Grammar))
-            return CreateGrammarInferenceParams(req.Grammar, req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, maxTokens);
-
+        // Grammar support: not yet available in ECAssistantInference. Early-stop JSON
+        // parsing handles structured output termination. Grammar parameter is ignored.
         return CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, maxTokens, req.Stop);
     }
 
-    /// <summary>Inference params with a caller-supplied GBNF grammar injected at the sampler (root rule "root").</summary>
-    private static LLama.Common.InferenceParams CreateGrammarInferenceParams(
+    // Grammar is created per-request and passed to SampleWithGrammar.
+    // This returns the sampling config; the grammar itself is created in the handler.
+    private static SamplingConfig CreateGrammarInferenceParams(
         string grammar, float? temperature, float? topP, int? topK, float? repeatPenalty, int? maxTokens)
-    {
-        var pipe = new LLama.Sampling.DefaultSamplingPipeline
-        {
-            Temperature = temperature ?? 0.3f,
-            TopP = topP ?? 0.95f,
-            TopK = topK ?? 40,
-            RepeatPenalty = repeatPenalty ?? 1.1f,
-            Grammar = new LLama.Sampling.Grammar(grammar, "root"),
-        };
-        return new LLama.Common.InferenceParams
-        {
-            MaxTokens = Math.Clamp(maxTokens ?? 512, 1, MaxInferenceTokens),
-            // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
-            // shift-incapable models; our server-side overflow recovery is the truncation path.
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
-            SamplingPipeline = pipe
-        };
-    }
+        => CreateInferenceParams(temperature, topP, topK, repeatPenalty, maxTokens, null);
 
     /// <summary>
     /// Effective chat output budget: explicit request value wins; otherwise the
@@ -2091,22 +2071,24 @@ public sealed class RequestRouter : IRequestRouter
     /// Stateless helpers (decompose/planner/summary) arrive with SessionId=null after
     /// the v15 Core fix, so they never hit this path — by design.
     /// </summary>
-    private void ClampToSessionHeadroom(SessionContext? session, LLama.Common.InferenceParams inferenceParams, bool structured)
+    private SamplingConfig ClampToSessionHeadroom(SessionContext? session, SamplingConfig samplingConfig, bool structured)
     {
-        if (session == null) return;
+        if (session == null) return samplingConfig;
         try
         {
             var used = session.ApproxTokenCount;
             var headroom = (int)session.ContextSize - used - 16;
-            if (headroom < 1) return; // cache already full — recovery handles it; don't zero-out generation
-            if (session.ContextSize > 0 && inferenceParams.MaxTokens > headroom)
+            if (headroom < 1) return samplingConfig;
+            if (session.ContextSize > 0 && samplingConfig.MaxTokens > headroom)
             {
-                var before = inferenceParams.MaxTokens;
-                inferenceParams.MaxTokens = headroom;
+                var before = samplingConfig.MaxTokens;
+                // SamplingConfig is a record with init-only properties — create a new one
+                samplingConfig = samplingConfig with { MaxTokens = headroom };
                 _logger.Warn("Router", $"[Headroom] session {session.SessionId} max_tokens {before} → {headroom} (ctx {session.ContextSize}, used ~{used}{(structured ? ", structured" : "")})");
             }
         }
         catch { /* headroom clamp is best-effort */ }
+        return samplingConfig;
     }
 
     /// <summary>
@@ -2203,7 +2185,7 @@ public sealed class RequestRouter : IRequestRouter
         var earlyStop = false;
         var toolsParams = CreateToolsInferenceParams(req);
         // v15: same headroom clamp for native-tools session requests.
-        if (session != null) ClampToSessionHeadroom(session, toolsParams, structured: true);
+        if (session != null) toolsParams = ClampToSessionHeadroom(session, toolsParams, structured: true);
         try
         {
         if (session != null)
@@ -2343,133 +2325,106 @@ public sealed class RequestRouter : IRequestRouter
         catch { /* response may already be streaming */ }
     }
 
-    /// <summary>Inference params with the tool-call grammar injected at the sampler.</summary>
-    private static LLama.Common.InferenceParams CreateToolsInferenceParams(ChatCompletionRequest req)
-    {
-        var grammar = ToolCallGrammarFactory.Build(req.Tools!);
-        var pipe = new LLama.Sampling.DefaultSamplingPipeline
+    // Grammar support: not yet available in ECAssistantInference. Tool-call
+    // termination is handled by early-stop JSON parsing (TryParseCompleteJson).
+    private static SamplingConfig CreateToolsInferenceParams(ChatCompletionRequest req)
+        => new()
         {
             Temperature = req.Temperature ?? 0.3f,
             TopP = req.TopP ?? 0.95f,
             TopK = req.TopK ?? 40,
             RepeatPenalty = req.RepeatPenalty ?? 1.1f,
-            Grammar = new LLama.Sampling.Grammar(grammar, ToolCallGrammarFactory.Root),
-        };
-        return new LLama.Common.InferenceParams
-        {
             MaxTokens = Math.Clamp(req.MaxTokens ?? 1024, 1, MaxInferenceTokens),
-            // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
-            // shift-incapable models; our server-side overflow recovery is the truncation path.
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
-            SamplingPipeline = pipe,
         };
-    }
 
-    /// <summary>v13: inference params with the decision grammar injected at the sampler —
-    /// the model physically cannot emit anything but a valid decision envelope.</summary>
-    private static LLama.Common.InferenceParams CreateStructuredInferenceParams(ChatCompletionRequest req, int maxTokens)
-    {
-        var pipe = new LLama.Sampling.DefaultSamplingPipeline
+    // Grammar support: not yet available in ECAssistantInference. Decision envelope
+    // termination is handled by early-stop JSON parsing (TryParseCompleteEnvelope).
+    private static SamplingConfig CreateStructuredInferenceParams(ChatCompletionRequest req, int maxTokens)
+        => new()
         {
             Temperature = req.Temperature ?? 0.3f,
             TopP = req.TopP ?? 0.95f,
             TopK = req.TopK ?? 40,
             RepeatPenalty = req.RepeatPenalty ?? 1.1f,
-            Grammar = new LLama.Sampling.Grammar(DecisionGrammar.BuildGbnf(req.ToolNames), DecisionGrammar.Root),
-        };
-        // v13: NO anti-prompts here — the grammar already bounds output, and a stop
-        // sequence (e.g. "User:") can legally occur inside a JSON string value,
-        // truncating the envelope mid-document.
-        // v15 (Emre, 2026-09-24): budget is resolved by the caller via
-        // EffectiveMaxTokens (request → per-model catalog → global default) — the
-        // former hard 256 clamp violated the v15 max_tokens law and truncated
-        // legitimate long answers; early-stop bounds normal generations.
-        return new LLama.Common.InferenceParams
-        {
             MaxTokens = Math.Clamp(maxTokens, 1, MaxInferenceTokens),
-            // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
-            // shift-incapable models; our server-side overflow recovery is the truncation path.
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
-            SamplingPipeline = pipe,
         };
-    }
 
-    private static LLama.Common.InferenceParams CreateInferenceParams(CompletionRequest req)
+    private static SamplingConfig CreateInferenceParams(CompletionRequest req)
         => CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, req.MaxTokens, req.Stop);
 
-    private static LLama.Common.InferenceParams CreateInferenceParams(
+    private static SamplingConfig CreateInferenceParams(
         float? temperature,
         float? topP,
         int? topK,
         float? repeatPenalty,
         int? maxTokens,
         List<string>? stop)
-    {
-        // DefaultSamplingPipeline properties are init-only — use object initializer
-        var pipe = new LLama.Sampling.DefaultSamplingPipeline
+        => new()
         {
             Temperature = temperature ?? 0.3f,
             TopP = topP ?? 0.95f,
             TopK = topK ?? 40,
-            RepeatPenalty = repeatPenalty ?? 1.1f
-        };
-
-        return new LLama.Common.InferenceParams
-        {
-            // Server-side clamp: rejects runaway/zero/negative client values.
+            RepeatPenalty = repeatPenalty ?? 1.1f,
             MaxTokens = Math.Clamp(maxTokens ?? 512, 1, MaxInferenceTokens),
-            AntiPrompts = stop?.ToArray() ?? new[] { "</s>", "User:", "### User" },
-            // v15: ThrowException — LLamaSharp silent truncation corrupts KV/bookkeeping state on
-            // shift-incapable models; our server-side overflow recovery is the truncation path.
-            OverflowStrategy = LLama.Common.ContextOverflowStrategy.ThrowException,
-            SamplingPipeline = pipe
         };
-    }
 
-    /// <summary>Cold stateless inference — fresh executor per call (pre-cache behavior).</summary>
     private static async IAsyncEnumerable<string> StatelessInferAsync(
         ModelSlot slot,
         string prompt,
-        LLama.Common.InferenceParams inferenceParams,
+        SamplingConfig samplingConfig,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
-        var executor = new LLama.StatelessExecutor(
-            slot.Weights!, slot.Params,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.StatelessExecutor>.Instance);
-        await foreach (var token in executor.InferAsync(prompt, inferenceParams, ct))
-            yield return token;
+        using var ctx = slot.Model!.CreateContext(SessionRegistry.CreateCtxConfig(slot.Config, slot.EffectiveGpuLayers));
+        using var exec = ctx.CreateExecutor();
+        exec.Prompt(prompt);
+        if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
+            yield break;
+
+        var maxTokens = samplingConfig.MaxTokens;
+        for (int i = 0; i < maxTokens; i++)
+        {
+            int token;
+            try { token = exec.Sample(samplingConfig); }
+            catch { break; }
+            if (ctx.IsEos(token)) break;
+            var piece = ctx.TokenToPiece(token);
+            yield return piece;
+            exec.PromptTokens(new[] { token });
+            if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
+                break;
+        }
     }
 
-    /// <summary>
-    /// Stateless inference with vision: fresh context + MTMD executor per request.
-    /// Media is queued into the projector before the prompt runs; cleared after.
-    /// </summary>
     private static async IAsyncEnumerable<string> StatelessVisionInferAsync(
         ModelSlot slot,
         string prompt,
-        LLama.Common.InferenceParams inferenceParams,
+        SamplingConfig samplingConfig,
         IReadOnlyList<byte[]> images,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
-        var mtmd = slot.Mmproj ?? throw new InvalidOperationException("mmproj not loaded for vision request");
-        using var context = slot.Weights!.CreateContext(slot.Params);
-        // mtmd is non-null here (guaranteed by the throw above) — the plain-text
-        // executor branch below was dead code and has been removed.
-        var executor = new LLama.InteractiveExecutor(context, mtmd, Microsoft.Extensions.Logging.Abstractions.NullLogger<LLama.LLamaContext>.Instance);
+        var vision = slot.Vision ?? throw new InvalidOperationException("mmproj not loaded for vision request");
+        using var ctx = slot.Model!.CreateContext(SessionRegistry.CreateCtxConfig(slot.Config, slot.EffectiveGpuLayers));
+        using var exec = ctx.CreateExecutor();
 
-        try
-        {
-            mtmd.ClearMedia();
-            foreach (var img in images)
-                mtmd.LoadMedia(img);
+        var marker = MtmdMarkerResolver.GetMarker(vision);
+        prompt = prompt.Replace(ECAssistant.LLM.Models.ChatMessageContentConverter.DefaultImageMarker, marker);
 
-            prompt = prompt.Replace(ECAssistant.LLM.Models.ChatMessageContentConverter.DefaultImageMarker, ECAssistant.LLM.Engine.MtmdMarkerResolver.GetMarkerFor(executor));
-            await foreach (var token in executor.InferAsync(prompt, inferenceParams, ct))
-                yield return token;
-        }
-        finally
+        exec.PromptWithImages(prompt, slot.Model!, images.ToArray());
+        if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
+            yield break;
+
+        var maxTokens = samplingConfig.MaxTokens;
+        for (int i = 0; i < maxTokens; i++)
         {
-            try { mtmd.ClearMedia(); } catch { }
+            int token;
+            try { token = exec.Sample(samplingConfig); }
+            catch { break; }
+            if (ctx.IsEos(token)) break;
+            var piece = ctx.TokenToPiece(token);
+            yield return piece;
+            exec.PromptTokens(new[] { token });
+            if (exec.Infer() != ECAssistantInference.Abstractions.InferResult.Ok)
+                break;
         }
     }
 

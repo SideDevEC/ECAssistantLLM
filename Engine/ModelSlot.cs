@@ -1,94 +1,74 @@
-using LLama;
-using LLama.Common;
-using LLama.Native;
+using ECAssistantInference.Abstractions;
+using ECAssistantInference.Exceptions;
+using ECAssistantInference.Implementation;
+using ECAssistantInference.Models;
+using InfModelConfig = ECAssistantInference.Models.ModelConfig;
+using InfContextConfig = ECAssistantInference.Models.ContextConfig;
 using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Engine.Backends;
+using KvType = ECAssistantInference.Models.KvType;
+using PoolingType = ECAssistantInference.Models.PoolingType;
 
 namespace ECAssistant.LLM.Engine;
 
 /// <summary>
-/// One loaded model: weights + params + status.
+/// One loaded model: inference model + config + status.
 /// Managed by MultiModelHost.
 /// </summary>
 public sealed class ModelSlot : IDisposable
 {
     private readonly ILogger _logger;
-    /// <summary>Server root (--root). Model paths resolve strictly inside this directory.</summary>
     private readonly string _rootDir;
     private bool _disposed;
 
-    /// <summary>Unique model ID (used in OpenAI "model" field).</summary>
     public string Id { get; }
-
-    /// <summary>Hard context floor for chat models (v15). Nothing runs below 32k by default;
-    /// override for tests/labs via ECA_MIN_CONTEXT env var (tokens, 0 disables the floor).</summary>
     public static uint MinChatContextSize { get; } = LoadFloor();
 
-    // Reads ECA_MIN_CONTEXT once. Invalid values fall back to the 32768 default.
     private static uint LoadFloor()
-     {
+    {
         var raw = Environment.GetEnvironmentVariable("ECA_MIN_CONTEXT");
         return uint.TryParse(raw, out var v) ? v : 32768u;
-     }
+    }
 
-    /// <summary>Config this slot was created from.</summary>
-    public ModelConfig Config { get; }
+    public ECAssistant.LLM.Config.ModelConfig Config { get; }
 
-    /// <summary>Loaded model weights. null if not yet loaded or disposed.</summary>
-    public LLamaWeights? Weights { get; private set; }
+    /// <summary>Loaded inference model. null if not yet loaded or disposed.</summary>
+    public IInferenceModel? Model { get; private set; }
 
-    /// <summary>Model params used to load weights.</summary>
-    public ModelParams Params { get; private set; }
+    /// <summary>Whether model is loaded and ready.</summary>
+    public bool IsLoaded => Model != null && !_disposed;
 
-    /// <summary>Whether weights are loaded and ready.</summary>
-    public bool IsLoaded => Weights != null && !_disposed;
-
-    /// <summary>Whether this is an embedding model.</summary>
     public bool IsEmbedding => Config.IsEmbedding;
-
-    /// <summary>Optional embedder instance for embedding models.</summary>
-    public LLamaEmbedder? Embedder { get; private set; }
 
     /// <summary>Vector dimension for embedding models (0 until first embed call).</summary>
     public int EmbeddingDim { get; private set; }
 
-    /// <summary>
-    /// Loaded MTMD (mmproj) projector for vision models. null until first use
-    /// or when no mmproj_path is configured. Lazy: loaded on first vision request.
-    /// Thread-safe: init is locked; a failed load is latched in _mmprojFailed so a
-    /// broken mmproj is not retried on every request (per-model reset on Unload).
-    /// </summary>
-    public MtmdWeights? Mmproj
+    /// <summary>Loaded MTMD vision encoder. null until first use or no mmproj configured.</summary>
+    public IVisionEncoder? Vision
     {
         get
         {
-            if (_mmproj != null) return _mmproj;
-            if (_mmprojFailed) return null;
-            lock (_mmprojGate)
+            if (_vision != null) return _vision;
+            if (_visionFailed) return null;
+            lock (_visionGate)
             {
-                if (_mmproj != null) return _mmproj;
-                if (_mmprojFailed) return null;
-                _mmproj = TryLoadMmproj();
-                if (_mmproj == null)
-                    _mmprojFailed = true; // sentinel: don't retry a known-bad load forever
-                return _mmproj;
+                if (_vision != null) return _vision;
+                if (_visionFailed) return null;
+                _vision = TryLoadVision();
+                if (_vision == null)
+                    _visionFailed = true;
+                return _vision;
             }
         }
     }
-    private MtmdWeights? _mmproj;
-    private volatile bool _mmprojFailed;
-    private readonly object _mmprojGate = new();
+    private IVisionEncoder? _vision;
+    private volatile bool _visionFailed;
+    private readonly object _visionGate = new();
 
-    /// <summary>True when this model accepts image input (mmproj configured).</summary>
     public bool SupportsVision => Config.SupportsVision;
-
-    /// <summary>
-    /// GPU layers actually applied after the Vulkan DeltaNet-MoE guard.
-    /// Differs from Config.GpuLayers when the guard clamped (Vulkan + qwen3_5moe).
-    /// </summary>
     public int EffectiveGpuLayers { get; private set; }
 
-    public ModelSlot(string id, ModelConfig config, ILogger logger, string rootDir)
+    public ModelSlot(string id, ECAssistant.LLM.Config.ModelConfig config, ILogger logger, string rootDir)
     {
         Id = id ?? throw new ArgumentNullException(nameof(id));
         Config = config ?? throw new ArgumentNullException(nameof(config));
@@ -96,24 +76,18 @@ public sealed class ModelSlot : IDisposable
         _rootDir = string.IsNullOrWhiteSpace(rootDir)
             ? throw new ArgumentNullException(nameof(rootDir))
             : Path.GetFullPath(rootDir);
-
-        Params = CreateModelParams(config);
     }
 
-    /// <summary>
-    /// Load model weights from disk into memory.
-    /// </summary>
     public async Task LoadAsync()
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(ModelSlot));
-        if (Weights != null)
+        if (Model != null)
             return;
 
         var resolvedPath = ResolveModelPath(Config.Path, _rootDir);
 
-        // Vulkan guard: hybrid DeltaNet-MoE models crash on partial GPU offload under
-        // Vulkan (llama.cpp #26945). Compute the effective layer count before load.
+        // Vulkan guard (kept from LLamaSharp era — still relevant for ECAssistantInference)
         var decision = GpuLayerGuard.Compute(
             Config.GpuLayers,
             GgufArchitectureReader.ReadArchitecture(resolvedPath),
@@ -122,26 +96,38 @@ public sealed class ModelSlot : IDisposable
             _logger.Warn("ModelSlot", decision.Reason!);
         EffectiveGpuLayers = decision.EffectiveGpuLayers;
 
-        // v15 hard floor: no chat model runs below 32k context — small windows cause
-        // compaction churn and overflow on agent workloads. Embedding models exempt.
+        // v15 hard floor
         if (!Config.IsEmbedding && Config.ContextSize < MinChatContextSize)
         {
             _logger.Warn("ModelSlot", $"Model '{Id}' context_size {Config.ContextSize} below hard floor {MinChatContextSize} — raising to {MinChatContextSize}.");
             Config.ContextSize = MinChatContextSize;
         }
 
-        Params = CreateModelParams(Config, resolvedPath, decision.EffectiveGpuLayers);
-
         try
         {
-            Weights = await LLamaWeights.LoadFromFileAsync(Params);
+            var modelConfig = new InfModelConfig
+            {
+                Path = resolvedPath,
+                GpuLayers = EffectiveGpuLayers,
+                Threads = Config.Threads,
+                FlashAttention = Config.FlashAttn,
+                KvCacheType = ParseKvType(Config.KvCache),
+            };
+
+            Model = NativeInferenceModel.Load(modelConfig);
 
             if (Config.IsEmbedding)
             {
-                Embedder = new LLamaEmbedder(Weights, Params);
                 // Determine embedding dimension from a test call
-                var testEmbeds = await Embedder.GetEmbeddings("dimension test");
-                EmbeddingDim = testEmbeds.Single().Length;
+                using var testCtx = Model.CreateContext(new ECAssistantInference.Models.ContextConfig
+                {
+                    ContextSize = Config.ContextSize,
+                    BatchSize = Config.BatchSize > 0 ? (uint)Config.BatchSize : 512,
+                    SeqMax = 1,
+                    PoolingType = ParsePoolingType(Config.PoolingType),
+                });
+                var testEmbeds = Model.GetEmbeddings(testCtx, "dimension test");
+                EmbeddingDim = testEmbeds.Length;
             }
 
             _logger.Info("ModelSlot", $"Loaded model '{Id}' from {resolvedPath} " +
@@ -155,33 +141,27 @@ public sealed class ModelSlot : IDisposable
         }
     }
 
-    /// <summary>
-    /// Unload weights (frees memory) but keep the slot (can re-load later).
-    /// </summary>
     public void Unload()
     {
-        Embedder?.Dispose();
-        Embedder = null;
-        _mmproj?.Dispose();
-        _mmproj = null;
-        // Allow a retry after the slot is re-loaded (e.g. mmproj file fixed on disk).
-        _mmprojFailed = false;
-        Weights?.Dispose();
-        Weights = null;
+        _vision?.Dispose();
+        _vision = null;
+        _visionFailed = false;
+        Model?.Dispose();
+        Model = null;
         _logger.Info("ModelSlot", $"Unloaded model '{Id}'");
     }
 
-    private MtmdWeights? TryLoadMmproj()
+    private IVisionEncoder? TryLoadVision()
     {
-        if (!SupportsVision || _disposed || Weights == null) return null;
+        if (!SupportsVision || _disposed || Model == null) return null;
         try
         {
             var path = Config.MmprojPath!;
             if (!Path.IsPathRooted(path))
                 path = ResolveModelPath(path, _rootDir);
-            var mtmd = MtmdWeights.LoadFromFile(path, Weights!, MtmdContextParams.Default());
+            var vision = Model.LoadVisionEncoder(path);
             _logger.Info("ModelSlot", $"Loaded mmproj projector '{Path.GetFileName(path)}' for model '{Id}' — vision enabled");
-            return mtmd;
+            return vision;
         }
         catch (Exception ex)
         {
@@ -190,75 +170,33 @@ public sealed class ModelSlot : IDisposable
         }
     }
 
-    private static ModelParams CreateModelParams(ModelConfig config, string? resolvedPath = null, int? effectiveGpuLayers = null)
+    private static KvType ParseKvType(string kvCache)
     {
-        var path = resolvedPath ?? config.Path;
-        var mp = new ModelParams(path)
+        if (string.IsNullOrEmpty(kvCache) || kvCache.Equals("f16", StringComparison.OrdinalIgnoreCase))
+            return KvType.F16;
+        if (kvCache.Equals("q8_0", StringComparison.OrdinalIgnoreCase))
+            return KvType.Q8_0;
+        if (kvCache.Equals("q4_0", StringComparison.OrdinalIgnoreCase))
+            return KvType.Q4_0;
+        if (kvCache.Equals("q4_1", StringComparison.OrdinalIgnoreCase))
+            return KvType.Q4_1;
+        return KvType.F16;
+    }
+
+    private static PoolingType ParsePoolingType(string pooling)
+    {
+        return pooling?.ToLowerInvariant() switch
         {
-            GpuLayerCount = Math.Clamp(effectiveGpuLayers ?? config.GpuLayers, 0, 100),
-            ContextSize = config.ContextSize,
-            Threads = config.Threads == -1 ? null : config.Threads,
-            FlashAttention = config.FlashAttn,
+            "mean" => PoolingType.Mean,
+            "cls" => PoolingType.Cls,
+            "last" => PoolingType.Last,
+            "none" => PoolingType.None,
+            _ => PoolingType.Mean,
         };
-
-        if (config.BatchSize > 0)
-        {
-            // v15: explicit ubatch control. llama.cpp requires batch == ubatch for
-            // non-causal (embedding) models — the v15 batch=1024 class default broke
-            // embedding loads ("batch size must be equal to ubatch size").
-            // Reconciliation rules:
-            //   chat model:       batch as configured; ubatch = config.UbatchSize if set,
-            //                     else LLamaSharp default 512 (causal models tolerate batch > ubatch)
-            //   embedding model:  ubatch is FORCED to batch (config.UbatchSize, if set,
-            //                     must match — warn otherwise) so custom embedding batch
-            //                     sizes load instead of throwing
-            mp.BatchSize = config.BatchSize;
-
-            if (config.IsEmbedding)
-            {
-                if (config.UbatchSize > 0 && config.UbatchSize != config.BatchSize)
-                    System.Console.Error.WriteLine($"[ModelSlot] [{config.Id}] ubatch_size={config.UbatchSize} != batch_size={config.BatchSize} on an embedding model — forcing ubatch = batch (llama.cpp requires batch == ubatch for non-causal models).");
-                mp.UBatchSize = config.BatchSize;
-            }
-            else if (config.UbatchSize > 0)
-            {
-                mp.UBatchSize = config.UbatchSize;
-            }
-        }
-
-        // KV cache quantization: q8_0 halves KV memory vs f16 with negligible quality
-        // loss. Chat models default to q8_0; embedding models keep the model default.
-        if (!config.IsEmbedding && !string.Equals(config.KvCache, "f16", StringComparison.OrdinalIgnoreCase))
-        {
-            if (config.KvCache.Equals("q8_0", StringComparison.OrdinalIgnoreCase))
-            {
-                mp.TypeK = GGMLType.GGML_TYPE_Q8_0;
-                mp.TypeV = GGMLType.GGML_TYPE_Q8_0;
-            }
-        }
-
-        if (config.IsEmbedding)
-        {
-            // Invariant culture: config values must not be reshaped by the OS locale
-            // (e.g. Turkish 'I' would break the mean/cls/last matches below).
-            mp.PoolingType = config.PoolingType.ToLowerInvariant() switch
-            {
-                "mean" => LLamaPoolingType.Mean,
-                "cls" => LLamaPoolingType.CLS,
-                "last" => LLamaPoolingType.Last,
-                "none" => LLamaPoolingType.None,
-                _ => LLamaPoolingType.Mean
-            };
-        }
-
-        return mp;
     }
 
     private static string ResolveModelPath(string path, string rootDir)
     {
-        // ROOT-ONLY contract: absolute paths are allowed only inside the root
-        // (warn+fail otherwise); relative paths resolve only as {root}/{path} or
-        // {root}/models/{filename}. No AppContext.BaseDirectory / CWD fallback.
         if (Path.IsPathRooted(path))
         {
             var full = Path.GetFullPath(path);

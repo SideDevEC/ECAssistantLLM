@@ -1,16 +1,11 @@
 using System.Collections.Concurrent;
-using LLama;
-using LLama.Common;
-using LLama.Sampling;
+using ECAssistantInference.Models;
+using InfContextConfig = ECAssistantInference.Models.ContextConfig;
 using ECAssistant.LLM.Config;
 using ECAssistant.LLM.Interfaces;
 
 namespace ECAssistant.LLM.Engine;
 
-/// <summary>
-/// Registry of all client sessions across the server.
-/// Sessions are namespaced by clientId. Thread-safe.
-/// </summary>
 public sealed class SessionRegistry : IDisposable
 {
     private readonly ConcurrentDictionary<string, SessionContext> _sessions = new();
@@ -34,12 +29,8 @@ public sealed class SessionRegistry : IDisposable
         _vram = vram ?? throw new ArgumentNullException(nameof(vram));
     }
 
-    /// <summary>Number of active sessions.</summary>
     public int Count => _sessions.Count;
 
-    /// <summary>
-    /// Create a new session with its own KV cache.
-    /// </summary>
     public SessionContext CreateSession(string clientId, string sessionId, string? modelId = null, string? toolsHash = null)
     {
         var key = $"{clientId}:{sessionId}";
@@ -54,21 +45,27 @@ public sealed class SessionRegistry : IDisposable
             ? _modelHost.GetSlot(modelId)
             : _modelHost.GetMainSlot();
 
-        var inferenceParams = CreateInferenceParams(_config.Inference);
+        var defaultSampling = CreateSamplingConfig(_config.Inference);
 
+        var infModelConfig = new ECAssistantInference.Models.ModelConfig
+        {
+            Path = slot.Config.Path,
+            GpuLayers = slot.EffectiveGpuLayers,
+            Threads = slot.Config.Threads,
+            FlashAttention = slot.Config.FlashAttn,
+        };
         var context = new SessionContext(
             clientId, sessionId, slot.Id,
-            slot.Weights!, slot.Params, inferenceParams, _logger,
-            mtmd: slot.Mmproj);
+            slot.Model!, infModelConfig, CreateCtxConfig(slot.Config, slot.EffectiveGpuLayers),
+            defaultSampling, _logger,
+            vision: slot.Vision);
 
-        // Atomic add — prevents two concurrent creates from silently overwriting (leaking KV cache)
         if (!_sessions.TryAdd(key, context))
         {
             context.Dispose();
             throw new InvalidOperationException($"Session already exists: {key}");
         }
 
-        // Reserve VRAM here so every destroy/release path stays symmetric
         if (!_vram.TryReserve(context.EstimatedVramMb))
         {
             _sessions.TryRemove(key, out _);
@@ -83,18 +80,12 @@ public sealed class SessionRegistry : IDisposable
         return context;
     }
 
-    /// <summary>
-    /// Get a session by composite key.
-    /// </summary>
     public SessionContext? GetSession(string clientId, string sessionId)
     {
         var key = $"{clientId}:{sessionId}";
         return _sessions.GetValueOrDefault(key);
     }
 
-    /// <summary>
-    /// Destroy a session (frees KV cache).
-    /// </summary>
     public bool DestroySession(string clientId, string sessionId)
     {
         var key = $"{clientId}:{sessionId}";
@@ -107,9 +98,6 @@ public sealed class SessionRegistry : IDisposable
         return true;
     }
 
-    /// <summary>
-    /// Destroy all sessions for a client (on disconnect/eviction).
-    /// </summary>
     public int DestroyClientSessions(string clientId)
     {
         var keys = _sessions.Where(kvp => kvp.Value.ClientId == clientId).Select(kvp => kvp.Key).ToList();
@@ -125,9 +113,6 @@ public sealed class SessionRegistry : IDisposable
         return keys.Count;
     }
 
-    /// <summary>
-    /// List all sessions (for status/diagnostics).
-    /// </summary>
     public IReadOnlyList<SessionStatusInfo> ListSessions()
     {
         return _sessions.Values.Select(s => new SessionStatusInfo(
@@ -137,44 +122,51 @@ public sealed class SessionRegistry : IDisposable
         )).ToList();
     }
 
-     /// <summary>
-     /// Reset every live session's KV cache after a context overflow that escaped the
-     /// per-request guards. Each session recreates its context (fresh KV) and is marked
-     /// un-prefilled so the next request re-prefills from scratch. Sessions stay alive.
-     /// </summary>
     public int ResetAllForOverflow()
-      {
+    {
         var count = 0;
         foreach (var session in _sessions.Values)
-           {
-            try
-               {
-                 session.Reset();
-                count++;
-               }
-            catch { /* a single bad session must not stop the rest */ }
-           }
-         if (count > 0)
-              _logger.Warn("SessionRegistry", $"Reset {count} session(s) after context overflow — next request re-prefills.");
-        return count;
-      }
-
-    private static InferenceParams CreateInferenceParams(InferenceDefaults defaults) => new()
-    {
-        MaxTokens = defaults.MaxTokens,
-        AntiPrompts = new[] { "</s>", "User:", "### User" },
-        // v15 audit fix (2026-09-24): TruncateAndReprefill THROWS on shift-incapable
-        // models (Qwen3.5 — J2 lesson) mid-prefill, where the router's ThrowException
-        // guards never run. Throw here too so the overflow surfaces as a typed
-        // ContextOverflowed → recovery path (413 + reset), matching the v15 doctrine.
-        OverflowStrategy = ContextOverflowStrategy.ThrowException,
-        SamplingPipeline = new DefaultSamplingPipeline
         {
-            Temperature = defaults.Temperature,
-            TopP = defaults.TopP,
-            TopK = defaults.TopK,
-            RepeatPenalty = defaults.RepeatPenalty
+            try
+            {
+                session.Reset();
+                count++;
+            }
+            catch { }
         }
+        if (count > 0)
+            _logger.Warn("SessionRegistry", $"Reset {count} session(s) after context overflow — next request re-prefills.");
+        return count;
+    }
+
+    internal static ECAssistantInference.Models.ContextConfig CreateCtxConfig(ECAssistant.LLM.Config.ModelConfig config, int effectiveGpuLayers)
+    {
+        var pooling = config.IsEmbedding
+            ? config.PoolingType?.ToLowerInvariant() switch
+            {
+                "mean" => PoolingType.Mean,
+                "cls" => PoolingType.Cls,
+                "last" => PoolingType.Last,
+                _ => PoolingType.Mean,
+            }
+            : PoolingType.None;
+
+        return new ECAssistantInference.Models.ContextConfig
+        {
+            ContextSize = (uint)config.ContextSize,
+            BatchSize = config.BatchSize > 0 ? (uint)config.BatchSize : 512,
+            SeqMax = 1,
+            PoolingType = pooling,
+        };
+    }
+
+    internal static SamplingConfig CreateSamplingConfig(InferenceDefaults defaults) => new()
+    {
+        Temperature = defaults.Temperature,
+        TopP = defaults.TopP,
+        TopK = defaults.TopK,
+        RepeatPenalty = defaults.RepeatPenalty,
+        MaxTokens = defaults.MaxTokens,
     };
 
     public void Dispose()
@@ -185,9 +177,6 @@ public sealed class SessionRegistry : IDisposable
     }
 }
 
-/// <summary>
-/// Read-only session status for API responses.
-/// </summary>
 public sealed record SessionStatusInfo(
     string ClientId,
     string SessionId,
