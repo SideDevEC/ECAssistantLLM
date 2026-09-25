@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-25T15:28:08.233887+00:00
-Packages: 2  |  Types: 210
+Generated: 2026-09-25T18:22:40.758201+00:00
+Packages: 2  |  Types: 213
 
 ---
 
-## ECAssistantLLM (151 types, ~12773 LOC)
+## ECAssistantLLM (153 types, ~12929 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -135,6 +135,8 @@ Packages: 2  |  Types: 210
 - 🟡 ShutdownTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SseStreamer  (ECAssistantLLM)
 - 🟡 SseStreamerTests : IDisposable  (ECAssistantLLM)
+- 🟡 StopFilter  (ECAssistantLLM)
+- 🟡 StopFilterTests  (ECAssistantLLM)
 - 🟡 StructuredDecoder  (ECAssistantLLM)
 - 🟡 StructuredDecoderTests  (ECAssistantLLM)
 - 🟡 SuccessResponse  (ECAssistantLLM)
@@ -159,7 +161,7 @@ Packages: 2  |  Types: 210
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (59 types, ~5562 LOC)
+## Tests (60 types, ~5648 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)
@@ -211,6 +213,7 @@ Packages: 2  |  Types: 210
 - 🟡 SessionLifecycleTests  (Tests)  deps: [TestServerFixture]
 - 🟡 ShutdownTests  (Tests)  deps: [TestServerFixture]
 - 🟡 SseStreamerTests : IDisposable  (Tests)
+- 🟡 StopFilterTests  (Tests)
 - 🟡 StructuredDecoderTests  (Tests)
 - 🟡 TernaryModelDetectorTests  (Tests)
 - 🟡 TestServerFixture : IAsyncLifetime  (Tests)

@@ -251,7 +251,11 @@ public sealed class SessionContext : IDisposable
             if (!string.IsNullOrEmpty(grammarStr) && !string.IsNullOrEmpty(grammarRoot) && _model != null)
             {
                 try { grammar = _model.CreateGrammar(grammarStr, grammarRoot); }
-                catch { }
+                catch (Exception ex)
+                {
+                    _logger.Warn("SessionContext", $"[{Key}] Grammar creation failed: {ex.Message}");
+                    throw; // fail loud — unconstrained generation silently corrupts structured output
+                }
             }
 
             if (_vision != null && images is { Count: > 0 })

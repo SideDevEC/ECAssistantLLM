@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 59  |  LOC: 5562  |  ~2800 tokens
+Types: 60  |  LOC: 5648  |  ~2839 tokens
 
 ---
 
@@ -246,6 +246,10 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > SSE framing tests over a real loopback HttpListener — no model weights involved.
 Implements: IDisposable
 Cross-package deps: ECAssistant.LLM.Server
+
+### Class: StopFilterTests
+> Migration regression (LLamaSharp → ECAssistantInference): the native engine has
+Cross-package deps: ECAssistant.LLM.Server, Xunit
 
 ### Class: StructuredDecoderTests
 > v13 structured decision envelope decoding.

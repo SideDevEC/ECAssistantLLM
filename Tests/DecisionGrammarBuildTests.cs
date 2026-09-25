@@ -7,21 +7,37 @@ namespace ECAssistant.LLM.Tests;
 public class DecisionGrammarBuildTests
 {
     [Fact]
-    public void BuildGbnf_NullNames_ReturnsPermissiveGbnf()
+    public void BuildGbnf_NullNames_ReturnsPermissiveBoundedGbnf()
     {
-        Assert.Equal(DecisionGrammar.Gbnf, DecisionGrammar.BuildGbnf(null));
+        // Bounded toolcalls array (default max 3 → {0,2}) applies even without
+        // name constraints — bounding is orthogonal to the name union.
+        var g = DecisionGrammar.BuildGbnf(null);
+        Assert.Contains("(\",\" ws toolcall){0,2})", g);
+        Assert.Contains("name ::= string", g);
     }
 
     [Fact]
-    public void BuildGbnf_EmptyList_ReturnsPermissiveGbnf()
+    public void BuildGbnf_EmptyList_ReturnsPermissiveBoundedGbnf()
     {
-        Assert.Equal(DecisionGrammar.Gbnf, DecisionGrammar.BuildGbnf(Array.Empty<string>()));
+        var g = DecisionGrammar.BuildGbnf(Array.Empty<string>());
+        Assert.Contains("(\",\" ws toolcall){0,2})", g);
+        Assert.Contains("name ::= string", g);
     }
 
     [Fact]
-    public void BuildGbnf_WhitespaceOnly_ReturnsPermissiveGbnf()
+    public void BuildGbnf_WhitespaceOnly_ReturnsPermissiveBoundedGbnf()
     {
-        Assert.Equal(DecisionGrammar.Gbnf, DecisionGrammar.BuildGbnf(new[] { " ", "" }));
+        // Same bounded form as null/empty — all permissive paths are bounded.
+        var g = DecisionGrammar.BuildGbnf(new[] { " ", "" });
+        Assert.Contains("(\",\" ws toolcall){0,2})", g);
+        Assert.Contains("name ::= string", g);
+    }
+
+    [Fact]
+    public void BuildGbnf_CustomMaxToolCalls_BoundsArray()
+    {
+        var g = DecisionGrammar.BuildGbnf(new[] { "EShellAgent" }, maxToolCalls: 5);
+        Assert.Contains("(\",\" ws toolcall){0,4})", g);
     }
 
     [Fact]

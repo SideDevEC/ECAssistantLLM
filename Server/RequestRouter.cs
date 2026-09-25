@@ -421,7 +421,7 @@ public sealed class RequestRouter : IRequestRouter
                     await WriteSessionNotFoundAsync(ctx.Response, req.SessionId);
                     return;
                 }
-                structuredStream = structuredSession.InferAsync(req.Messages, req, ct, grammar: DecisionGrammar.BuildGbnf(req.ToolNames));
+                structuredStream = structuredSession.InferAsync(req.Messages, req, ct, grammar: DecisionGrammar.BuildGbnf(req.ToolNames, _config.Inference.MaxParallelToolCalls));
                 sessionIdLabel = req.SessionId;
             }
             else
@@ -440,7 +440,7 @@ public sealed class RequestRouter : IRequestRouter
                 var structuredMaxTokens = Math.Clamp(
                     EffectiveMaxTokens(req.Model, req.MaxTokens, _config.Inference.MaxTokens), 1, MaxInferenceTokens);
                 structuredStream = stateless.InferStatelessAsync(
-                    req.Model, req.Messages, req, grammar: DecisionGrammar.BuildGbnf(req.ToolNames), structuredMaxTokens, ct);
+                    req.Model, req.Messages, req, grammar: DecisionGrammar.BuildGbnf(req.ToolNames, _config.Inference.MaxParallelToolCalls), structuredMaxTokens, ct);
                 sessionIdLabel = "stateless";
             }
 
@@ -714,7 +714,7 @@ public sealed class RequestRouter : IRequestRouter
 
             if (batchSession != null)
             {
-                await foreach (var token in batchSession.InferAsync(builtPrompt, structuredParams, ct, grammarStr: DecisionGrammar.BuildGbnf(req.ToolNames), grammarRoot: DecisionGrammar.Root))
+                await foreach (var token in batchSession.InferAsync(builtPrompt, structuredParams, ct, grammarStr: DecisionGrammar.BuildGbnf(req.ToolNames, _config.Inference.MaxParallelToolCalls), grammarRoot: DecisionGrammar.Root))
                 {
                     structuredSb.Append(token);
                     if (TryParseCompleteEnvelope(structuredSb.ToString(), out var earlyEnvelope))
@@ -923,7 +923,7 @@ public sealed class RequestRouter : IRequestRouter
             {
             if (session != null)
             {
-                await foreach (var token in session.InferAsync(prompt, structuredParams, ct, images, DecisionGrammar.BuildGbnf(req.ToolNames), DecisionGrammar.Root))
+                await foreach (var token in session.InferAsync(prompt, structuredParams, ct, images, DecisionGrammar.BuildGbnf(req.ToolNames, _config.Inference.MaxParallelToolCalls), DecisionGrammar.Root))
                 {
                     structuredSb.Append(token);
                     // v14.7: Early termination — stop generation as soon as we have
@@ -941,7 +941,8 @@ public sealed class RequestRouter : IRequestRouter
             }
             else
             {
-                await foreach (var token in CreateStatelessStream(templateSlot, prompt, structuredParams, images, ct))
+                await foreach (var token in CreateStatelessStream(templateSlot, prompt, structuredParams, images, ct,
+                    DecisionGrammar.BuildGbnf(req.ToolNames, _config.Inference.MaxParallelToolCalls), DecisionGrammar.Root))
                 {
                     structuredSb.Append(token);
                     if (TryParseCompleteEnvelope(structuredSb.ToString(), out var earlyEnvelope))
@@ -1031,11 +1032,11 @@ public sealed class RequestRouter : IRequestRouter
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
-                tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images, req.Grammar), ct);
+                tokenStream = ThinkFilter.ApplyAsync(StopFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images, req.Grammar), req.Stop, ct), ct);
             }
             else
             {
-                tokenStream = ThinkFilter.ApplyAsync(CreateStatelessStream(templateSlot, prompt, inferenceParams, images, ct), ct);
+                tokenStream = ThinkFilter.ApplyAsync(StopFilter.ApplyAsync(CreateStatelessStream(templateSlot, prompt, inferenceParams, images, ct), req.Stop, ct), ct);
             }
 
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -1053,7 +1054,7 @@ public sealed class RequestRouter : IRequestRouter
             {
             if (session != null)
             {
-                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images, req.Grammar), ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(StopFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, images, req.Grammar), req.Stop, ct), ct))
                 {
                     sb.Append(token);
                     if (req.Grammar != null && TryParseCompleteJson(sb.ToString())) break;
@@ -1061,7 +1062,7 @@ public sealed class RequestRouter : IRequestRouter
             }
             else
             {
-                await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(templateSlot, prompt, inferenceParams, images, ct), ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(StopFilter.ApplyAsync(CreateStatelessStream(templateSlot, prompt, inferenceParams, images, ct), req.Stop, ct), ct))
                 {
                     sb.Append(token);
                     if (req.Grammar != null && TryParseCompleteJson(sb.ToString())) break;
@@ -1147,11 +1148,11 @@ public sealed class RequestRouter : IRequestRouter
             IAsyncEnumerable<string> tokenStream;
             if (session != null)
             {
-                tokenStream = ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, grammarStr: null), ct);
+                tokenStream = ThinkFilter.ApplyAsync(StopFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, grammarStr: null), req.Stop, ct), ct);
             }
             else
             {
-                tokenStream = ThinkFilter.ApplyAsync(CreateStatelessStream(slot, prompt, inferenceParams, images: null, ct), ct);
+                tokenStream = ThinkFilter.ApplyAsync(StopFilter.ApplyAsync(CreateStatelessStream(slot, prompt, inferenceParams, images: null, ct), req.Stop, ct), ct);
             }
 
             await SseStreamer.StreamCompletionAsync(ctx.Response, tokenStream, req.Model, ct);
@@ -1169,12 +1170,12 @@ public sealed class RequestRouter : IRequestRouter
             {
             if (session != null)
             {
-                await foreach (var token in ThinkFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, grammarStr: null), ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(StopFilter.ApplyAsync(session.InferAsync(prompt, inferenceParams, ct, grammarStr: null), req.Stop, ct), ct))
                     sb.Append(token);
             }
             else
             {
-                await foreach (var token in ThinkFilter.ApplyAsync(CreateStatelessStream(slot, prompt, inferenceParams, images: null, ct), ct))
+                await foreach (var token in ThinkFilter.ApplyAsync(StopFilter.ApplyAsync(CreateStatelessStream(slot, prompt, inferenceParams, images: null, ct), req.Stop, ct), ct))
                     sb.Append(token);
             }
             }
@@ -2032,8 +2033,10 @@ public sealed class RequestRouter : IRequestRouter
                 .FirstOrDefault(m => m.Id.Equals(req.Model, StringComparison.OrdinalIgnoreCase))?.MaxTokens ?? 0;
             if (perModel > 0) maxTokens = perModel;
         }
-        // Grammar support: not yet available in ECAssistantInference. Early-stop JSON
-        // parsing handles structured output termination. Grammar parameter is ignored.
+        // Stop sequences are applied by StopFilter at the stream level (the native
+        // engine has no stop support) — handlers pass req.Stop to StopFilter.ApplyAsync.
+        // Client grammar on plain chat is not yet wired through this factory
+        // (structured/tools grammars are built server-side in the handlers).
         return CreateInferenceParams(req.Temperature, req.TopP, req.TopK, req.RepeatPenalty, maxTokens, req.Stop);
     }
 
@@ -2388,12 +2391,12 @@ public sealed class RequestRouter : IRequestRouter
     {
         using var ctx = slot.Model!.CreateContext(SessionRegistry.CreateCtxConfig(slot.Config, slot.EffectiveGpuLayers));
         using var exec = ctx.CreateExecutor();
+        // Grammar failure must NOT be swallowed — an unconstrained structured request
+        // silently corrupts the envelope (markdown prose instead of JSON). Let it throw:
+        // the handler returns 5xx and the client falls back to the capped plain path.
         IGrammar? grammar = null;
         if (!string.IsNullOrEmpty(grammarStr) && !string.IsNullOrEmpty(grammarRoot))
-        {
-            try { grammar = slot.Model!.CreateGrammar(grammarStr, grammarRoot); }
-            catch { }
-        }
+            grammar = slot.Model!.CreateGrammar(grammarStr, grammarRoot);
         try
         {
             exec.Prompt(prompt);
@@ -2403,6 +2406,7 @@ public sealed class RequestRouter : IRequestRouter
             var maxTokens = samplingConfig.MaxTokens;
             for (int i = 0; i < maxTokens; i++)
             {
+                ct.ThrowIfCancellationRequested();
                 int token;
                 try
                 {
@@ -2443,6 +2447,7 @@ public sealed class RequestRouter : IRequestRouter
         var maxTokens = samplingConfig.MaxTokens;
         for (int i = 0; i < maxTokens; i++)
         {
+            ct.ThrowIfCancellationRequested();
             int token;
             try { token = exec.Sample(samplingConfig); }
             catch { break; }

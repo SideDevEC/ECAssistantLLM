@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 151  |  LOC: 12773  |  ~6602 tokens
+Types: 153  |  LOC: 12929  |  ~6667 tokens
 
 ---
 
@@ -569,6 +569,13 @@ Cross-package deps: ECAssistant.LLM.Models
 > SSE framing tests over a real loopback HttpListener — no model weights involved.
 Implements: IDisposable
 Cross-package deps: ECAssistant.LLM.Server
+
+### Class: StopFilter
+> Stream-safe stop-sequence filter. Terminates generation as soon as any stop
+
+### Class: StopFilterTests
+> Migration regression (LLamaSharp → ECAssistantInference): the native engine has
+Cross-package deps: ECAssistant.LLM.Server, Xunit
 
 ### Class: StructuredDecoder
 > v13 Parses the grammar-forced decision envelope into a typed DTO.

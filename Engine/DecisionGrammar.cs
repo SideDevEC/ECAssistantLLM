@@ -39,10 +39,15 @@ ws ::= [ \t\n]*
     /// Pure function — no mutable state.
     /// </summary>
     // Stateless utility — no mutable state
-    public static string BuildGbnf(IReadOnlyCollection<string>? toolNames)
+    public static string BuildGbnf(IReadOnlyCollection<string>? toolNames, int maxToolCalls = 3)
     {
+        if (maxToolCalls < 1) maxToolCalls = 1;
+        // Bounded toolcalls array — mirrors ToolCallGrammarFactory: an unbounded
+        // array lets low-temp models loop toolcalls until max_tokens truncates
+        // the JSON mid-string. {0,max-1} forces "]" after max calls.
+        var bounded = Gbnf.Replace("(\",\" ws toolcall)*", $"(\",\" ws toolcall){{0,{Math.Max(0, maxToolCalls - 1)}}}");
         if (toolNames is not { Count: > 0 })
-            return Gbnf;
+            return bounded;
 
         var names = toolNames
             .Where(n => !string.IsNullOrWhiteSpace(n))
@@ -50,7 +55,7 @@ ws ::= [ \t\n]*
             .Distinct(StringComparer.Ordinal)
             .ToList();
         if (names.Count == 0)
-            return Gbnf;
+            return bounded;
 
         // The grammar must match the tool name AS JSON EMITS IT — quotes included
         // ("EShellAgent", not the bare word): the permissive `string` rule emits the
@@ -62,6 +67,7 @@ ws ::= [ \t\n]*
                 .Replace("\\", "\\\\").Replace("\"", "\\\"") + "\""));
 
         // Swap the permissive `name ::= string` rule for the constrained union.
-        return Gbnf.Replace("name ::= string", "name ::= " + union);
+        // Applied to the BOUNDED grammar — bounding must survive name substitution.
+        return bounded.Replace("name ::= string", "name ::= " + union);
     }
 }
