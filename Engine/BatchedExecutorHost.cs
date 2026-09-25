@@ -36,10 +36,10 @@ public sealed class BatchedExecutorHost : IDisposable
 
     private void Initialize()
     {
-        var batchSize = (int)_config.Server.BatchContextSize;
-        if (batchSize <= 0)
-            batchSize = 32768;
-
+        // Emre (2026-09-25): NO separate batch_context_size — the shared batch KV pool
+        // inherits each model's `context_size` (one knob, like Ollama's num_ctx).
+        // batch_context_size was REMOVED from config; old config files with the key
+        // are ignored by the JSON parser (unknown fields are skipped).
         foreach (var modelId in _modelHost.LoadedModelIds)
         {
             var slot = _modelHost.TryGetSlot(modelId);
@@ -52,7 +52,7 @@ public sealed class BatchedExecutorHost : IDisposable
 
             var contextParams = new ModelParams(slot.Config.Path)
             {
-                ContextSize = (uint)batchSize,
+                ContextSize = (uint)slot.Config.ContextSize,
                 GpuLayerCount = slot.EffectiveGpuLayers,
                 Threads = slot.Config.Threads == -1 ? null : slot.Config.Threads,
                 // Physical batch (n_batch / ubatch): keep small — this is the per-decode
@@ -72,15 +72,16 @@ public sealed class BatchedExecutorHost : IDisposable
             var coordinator = new BatchInferenceCoordinator(executor, _logger, modelId);
             _coordinators[modelId] = coordinator;
 
-            // Rough VRAM estimate for the shared context
-            EstimatedSharedVramMb += EstimateContextVramMb(batchSize);
+            // Rough VRAM estimate for the shared context (per model — ignores GQA,
+            // treat as conservative upper bound)
+            EstimatedSharedVramMb += EstimateContextVramMb((int)slot.Config.ContextSize);
 
             _logger.Info("BatchedExecutorHost",
-                $"Created BatchedExecutor for model '{modelId}' (shared ctx={batchSize}, gpu_layers={slot.EffectiveGpuLayers})");
+                $"Created BatchedExecutor for model '{modelId}' (shared ctx={slot.Config.ContextSize}, gpu_layers={slot.EffectiveGpuLayers})");
         }
 
         _logger.Info("BatchedExecutorHost",
-            $"Initialized {_coordinators.Count} batched executor(s), estimated shared VRAM ~{EstimatedSharedVramMb:F0} MB");
+            $"Initialized {_coordinators.Count} batched executor(s), estimated shared VRAM ~{EstimatedSharedVramMb:F0} MB (pools inherit model context_size)");
     }
 
     /// <summary>Get the coordinator for a specific model. Falls back to the main model.</summary>

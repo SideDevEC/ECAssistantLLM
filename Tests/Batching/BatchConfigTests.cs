@@ -32,10 +32,14 @@ public class BatchConfigTests
     }
 
     [Fact]
-    public void ServerSection_DefaultBatchContextSize_32768()
+    public void ServerSection_HasNoBatchContextSize()
     {
+        // Removed 2026-09-25 (Emre): batch KV pool inherits each model's context_size.
+        // One knob — batch_context_size key no longer exists on ServerSection.
         var section = new ServerSection();
-        Assert.Equal(32768u, section.BatchContextSize);
+        Assert.False(section.ContinuousBatching);
+        var hasProperty = typeof(ServerSection).GetProperty("BatchContextSize");
+        Assert.Null(hasProperty);
     }
 
     [Fact]
@@ -43,12 +47,5 @@ public class BatchConfigTests
     {
         var section = new ServerSection { ContinuousBatching = true };
         Assert.True(section.ContinuousBatching);
-    }
-
-    [Fact]
-    public void ServerSection_CanSetCustomBatchContextSize()
-    {
-        var section = new ServerSection { BatchContextSize = 65536 };
-        Assert.Equal(65536u, section.BatchContextSize);
     }
 }

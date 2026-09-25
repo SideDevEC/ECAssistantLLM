@@ -308,7 +308,7 @@ public sealed class BatchServerFixture : IAsyncLifetime
 
         // ── ENABLE CONTINUOUS BATCHING ──
         config.Server.ContinuousBatching = true;
-        config.Server.BatchContextSize = 32768;
+        // (batch_context_size removed 2026-09-25 — pool inherits model context_size)
 
         return config;
     }
