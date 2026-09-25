@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 151  |  LOC: 12500  |  ~6609 tokens
+Types: 151  |  LOC: 12763  |  ~6612 tokens
 
 ---
 
@@ -81,7 +81,7 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
 
 ### Class: BatchInferenceCoordinator
-> Coordinates <see cref="BatchedExecutor.Infer"/> calls across all active batch sessions
+> Coordinates <see cref="BatchedExecutor.Infer"/> calls across all active batch sessions.
 Implements: IDisposable
 Constructor:
   - BatchInferenceCoordinator(BatchedExecutor executor, ILogger logger, string modelId)
@@ -105,7 +105,7 @@ Constructor:
 Cross-package deps: LLama, LLama.Batched, LLama.Common, LLama.Native, LLama.Sampling
 
 ### Class: BatchSessionBufferTests
-> Unit tests for BatchSession buffer behavior — no model required.
+> Unit tests for the concurrency-hardened buffer system — no model required.
 Cross-package deps: ECAssistant.LLM.Engine
 
 ### Class: BatchSessionLifecycleTests

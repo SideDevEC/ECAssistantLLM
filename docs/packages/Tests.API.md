@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 59  |  LOC: 5492  |  ~2797 tokens
+Types: 59  |  LOC: 5567  |  ~2800 tokens
 
 ---
 
@@ -37,7 +37,7 @@ Implements: IAsyncLifetime
 Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Server
 
 ### Class: BatchSessionBufferTests
-> Unit tests for BatchSession buffer behavior — no model required.
+> Unit tests for the concurrency-hardened buffer system — no model required.
 Cross-package deps: ECAssistant.LLM.Engine
 
 ### Class: BatchSessionLifecycleTests
