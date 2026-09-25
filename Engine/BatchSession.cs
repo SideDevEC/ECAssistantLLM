@@ -602,6 +602,13 @@ public sealed class BatchSession : IDisposable
         }
     }
 
+    /// <summary>True when a request is currently being served on this session (request gate held).
+    /// Used by the overflow safety net: an actively-streaming session must never be reset
+    /// out from under its request — it owns its own overflow handling.
+    /// Snapshot value; sessions that start right after are still safe (reset is buffered
+    /// behind the gate, so it applies only after the request finishes).</summary>
+    internal bool IsBusy => _requestGate.CurrentCount == 0;
+
     /// <summary>Get the underlying LLamaContext (for tokenization).</summary>
     public LLamaContext? GetContext() => _coordinator?.Context;
 

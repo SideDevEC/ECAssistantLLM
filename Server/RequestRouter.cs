@@ -198,6 +198,10 @@ public sealed class RequestRouter : IRequestRouter
     private bool IsProcessModel(string modelId)
     {
         if (_processHost is null) return false;
+        // null = main model (OpenAI default) — resolve it so a process-backed MAIN model
+        // routes to the process path instead of the in-process batch/standard path.
+        if (modelId is null)
+            modelId = _models.MainModelId;
         if (_processHost.Instances.Any(i => i.ModelId.Equals(modelId, StringComparison.OrdinalIgnoreCase)))
             return true;
         var cfg = _config.Models.FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase));

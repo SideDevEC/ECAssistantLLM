@@ -106,9 +106,10 @@ public sealed class BatchSessionRegistry : IDisposable
     }
 
     /// <summary>
-    /// Enqueue a Reset on every live batch session and kick a cleanup cycle per affected
-    /// coordinator, so the retired/reset conversations are actually recreated and KV
-    /// regions become reusable promptly — not just "whenever the next request happens".
+    /// Enqueue a Reset on every IDLE batch session and kick a cleanup cycle per affected
+    /// coordinator. Sessions actively serving a request are SKIPPED — a live stream must
+    /// never be reset out from under its request (each request must feel fully isolated).
+    /// Busy sessions own their own overflow handling (ContextOverflowException path).
     /// Non-blocking: cycles run fire-and-forget; every later cycle also applies any
     /// remaining resets, and executor disposal frees everything at shutdown.
     /// </summary>
@@ -120,6 +121,9 @@ public sealed class BatchSessionRegistry : IDisposable
         {
             try
             {
+                // Skip busy sessions — never reset out from under a live request
+                if (session.IsBusy)
+                    continue;
                 // Non-blocking enqueue (no sync-over-async); a cycle applies it
                 coordinators.Add(session.Coordinator);
                 _ = session.ResetAsync();

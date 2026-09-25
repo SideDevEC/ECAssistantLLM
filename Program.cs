@@ -212,6 +212,10 @@ finally
 {
     server.Dispose();
     try { processModelHost.Dispose(); } catch (Exception pex) { logger.Warn("Main", $"Process backend shutdown error: {pex.Message}"); }
+    // Retire live sessions BEFORE the executors go away (retire is non-blocking; the
+    // coordinator's gated dispose below then drains in-flight cycles before the
+    // executor is freed).
+    try { batchSessionRegistry?.Dispose(); } catch (Exception bex) { logger.Warn("Main", $"Batch session registry shutdown error: {bex.Message}"); }
     try { batchExecutorHost?.Dispose(); } catch (Exception bex) { logger.Warn("Main", $"Batched executor shutdown error: {bex.Message}"); }
     logger.Info("Main", "Server stopped.");
 }
