@@ -68,7 +68,11 @@ public sealed class BatchSessionRegistry : IDisposable
         if (!_sessions.TryRemove(key, out var session))
             return false;
 
+        // Non-blocking: Dispose only retires the session; the coordinator disposes the
+        // conversation inside its cycle gate. A fire-and-forget cleanup cycle makes the
+        // KV regions reusable promptly even if no other request arrives.
         session.Dispose();
+        KickCleanupCycle(session.Coordinator);
         _logger.Info("BatchSessionRegistry", $"Destroyed batch session '{key}'");
         return true;
     }
@@ -76,11 +80,17 @@ public sealed class BatchSessionRegistry : IDisposable
     public int DestroyClientSessions(string clientId)
     {
         var keys = _sessions.Where(kvp => kvp.Value.ClientId == clientId).Select(kvp => kvp.Key).ToList();
+        var coordinators = new List<BatchInferenceCoordinator>();
         foreach (var key in keys)
         {
             if (_sessions.TryRemove(key, out var session))
+            {
+                coordinators.Add(session.Coordinator);
                 session.Dispose();
+            }
         }
+        foreach (var coord in coordinators.Distinct())
+            KickCleanupCycle(coord);
         if (keys.Count > 0)
             _logger.Info("BatchSessionRegistry", $"Destroyed {keys.Count} batch session(s) for client '{clientId}'");
         return keys.Count;
@@ -96,24 +106,44 @@ public sealed class BatchSessionRegistry : IDisposable
     }
 
     /// <summary>
-    /// Reset every live batch session's conversation — frees all KV regions in the shared
-    /// context and recreates conversations. Next request re-prefills from scratch.
+    /// Enqueue a Reset on every live batch session and kick a cleanup cycle per affected
+    /// coordinator, so the retired/reset conversations are actually recreated and KV
+    /// regions become reusable promptly — not just "whenever the next request happens".
+    /// Non-blocking: cycles run fire-and-forget; every later cycle also applies any
+    /// remaining resets, and executor disposal frees everything at shutdown.
     /// </summary>
     public int ResetAllForOverflow()
     {
         var count = 0;
+        var coordinators = new List<BatchInferenceCoordinator>();
         foreach (var session in _sessions.Values)
         {
             try
             {
-                session.ResetAsync().Wait();
+                // Non-blocking enqueue (no sync-over-async); a cycle applies it
+                coordinators.Add(session.Coordinator);
+                _ = session.ResetAsync();
                 count++;
             }
             catch { /* a single bad session must not stop the rest */ }
         }
+        foreach (var coord in coordinators.Distinct())
+            KickCleanupCycle(coord);
         if (count > 0)
             _logger.Warn("BatchSessionRegistry", $"Reset {count} batch session(s) after context overflow");
         return count;
+    }
+
+    /// <summary>Fire-and-forget one coordinator cycle: applies graveyard disposals +
+    /// buffered resets. Never observed — errors are swallowed; later cycles retry, and
+    /// executor disposal frees everything at shutdown.</summary>
+    private void KickCleanupCycle(BatchInferenceCoordinator coordinator)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await coordinator.RunInferCycleAsync(); }
+            catch { /* best-effort cleanup; executor disposal is the safety net */ }
+        });
     }
 
     public void Dispose()
@@ -124,5 +154,7 @@ public sealed class BatchSessionRegistry : IDisposable
         foreach (var session in _sessions.Values)
             session.Dispose();
         _sessions.Clear();
+        // Executor disposal (BatchedExecutorHost) frees the shared KV pool — no
+        // conversation can leak past shutdown.
     }
 }

@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-25T06:08:15.454106+00:00
+Generated: 2026-09-25T06:21:08.994868+00:00
 Packages: 2  |  Types: 210
 
 ---
 
-## ECAssistantLLM (151 types, ~12500 LOC)
+## ECAssistantLLM (151 types, ~12730 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -159,7 +159,7 @@ Packages: 2  |  Types: 210
 - 🟡 VramBudgetTests  (ECAssistantLLM)
 - 🟡 VulkanAvailabilityProbe  (ECAssistantLLM)
 
-## Tests (59 types, ~5492 LOC)
+## Tests (59 types, ~5567 LOC)
 
 - 🟡 BackendPortAllocatorTests  (Tests)
 - 🟡 BackendSelectorTests  (Tests)

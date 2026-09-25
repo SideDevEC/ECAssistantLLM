@@ -5,40 +5,38 @@ using LLama.Native;
 namespace ECAssistant.LLM.Engine;
 
 /// <summary>
-/// Coordinates <see cref="BatchedExecutor.Infer"/> calls across all active batch sessions
-/// using a BUFFER system — no locking.
+/// Coordinates <see cref="BatchedExecutor.Infer"/> calls across all active batch sessions.
 ///
-/// <para>Sessions never touch their <see cref="Conversation"/> directly. They buffer
-/// prompts and mutations (compact, reset, save) in their own local state. The coordinator
-/// collects all pending buffers, applies mutations first, flushes prompts, then runs
-/// ONE <c>Infer()</c> for all sessions. This means:</para>
+/// <para><b>Buffer system, concurrency-hardened (2026-09-25 second pass):</b>
+/// Sessions never touch their <see cref="Conversation"/> directly. Requests enqueue
+/// operations into a thread-safe per-session <see cref="BatchOpBuffer"/> (atomic FIFO —
+/// nothing can be lost under concurrent writers). The coordinator dequeues each
+/// session's ops in FIFO order, applies mutations first-come-first-served, flushes
+/// prompts, then runs ONE <c>Infer()</c> for all sessions with pending work.</para>
 ///
-/// <list type="bullet">
-/// <item>Session A can compact while session B is mid-generation — A just marks itself
-///   for compaction. The coordinator applies it before the next Infer() cycle.</item>
-/// <item>Multiple compactions can happen in one cycle — the coordinator processes them
-///   sequentially before Infer().</item>
-/// <item>No lock contention — sessions write to their own buffers, coordinator reads them.</item>
-/// </list>
+/// <para>Each cycle is serialized by <see cref="_cycleGate"/>: sessions call
+/// <c>RunInferCycleAsync</c> from their own request threads, and the gate makes
+/// drain + apply + Infer ONE atomic step while still batching ALL pending work per
+/// cycle. Different sessions' requests still batch together in one decode.</para>
 ///
-/// <para>The coordinator is the ONLY thread that touches conversations. Sessions are
-/// producers (buffer operations), coordinator is the consumer (apply + Infer).</para>
+/// <para><b>Deferred disposal:</b> retired sessions (<see cref="Retire"/>) move to a
+/// graveyard; their conversations are disposed at the START of the next cycle — inside
+/// the gate — so a disconnect racing an in-flight Infer can never dispose a conversation
+/// the coordinator is touching.</para>
 /// </summary>
 public sealed class BatchInferenceCoordinator : IDisposable
 {
     private readonly BatchedExecutor _executor;
     private readonly ILogger _logger;
     private readonly string _modelId;
-    // Audit fix (2026-09-25): cycles MUST be serialized. Sessions call RunInferCycleAsync
-    // from their own request threads; without this gate, concurrent cycles race on
-    // TakePendingPrompt (double Prompt → ConversationAlreadyPromptedException) and touch
-    // conversations concurrently. The gate serializes mutation+flush+Infer as ONE atomic
-    // cycle while still batching ALL pending work per cycle.
+    // Serializes each cycle: mutations+flush+Infer atomic (audit fix 2026-09-25).
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private bool _disposed;
 
-    /// <summary>Registered sessions — the coordinator iterates this to collect buffers.</summary>
+    /// <summary>Registered (live) sessions — the coordinator iterates this to drain buffers.</summary>
     private readonly List<BatchSession> _sessions = new();
+    /// <summary>Retired sessions awaiting conversation disposal inside the cycle gate.</summary>
+    private readonly List<BatchSession> _graveyard = new();
     private readonly object _sessionsLock = new();
 
     /// <summary>The underlying executor.</summary>
@@ -54,29 +52,35 @@ public sealed class BatchInferenceCoordinator : IDisposable
         _modelId = modelId ?? throw new ArgumentNullException(nameof(modelId));
     }
 
-    /// <summary>Register a session so the coordinator collects its buffers each cycle.</summary>
+    /// <summary>Register a session so the coordinator drains its op buffer each cycle.</summary>
     internal void Register(BatchSession session)
     {
         lock (_sessionsLock)
             _sessions.Add(session);
     }
 
-    /// <summary>Unregister a session (on dispose).</summary>
-    internal void Unregister(BatchSession session)
+    /// <summary>
+    /// Retire a session (on Dispose / disconnect). Non-blocking: the conversation is NOT
+    /// disposed here — the coordinator disposes graveyard sessions inside the cycle gate,
+    /// eliminating the dispose-vs-in-flight-cycle native crash race.
+    /// </summary>
+    internal void Retire(BatchSession session)
     {
         lock (_sessionsLock)
+        {
             _sessions.Remove(session);
+            _graveyard.Add(session);
+        }
     }
 
     /// <summary>
-    /// Run one Infer cycle — the core of the buffer system (serialized, one at a time):
-    /// 1. Collect all pending mutations (compaction, reset, save) from registered sessions
-    /// 2. Apply mutations to conversations (dispose+reload, shiftleft, save state)
-    /// 3. Flush all pending prompts to conversations
-    /// 4. Run ONE Infer() — all conversations with pending tokens batch in one llama_decode
+    /// Run one Infer cycle (serialized, one at a time):
+    /// 1. Dispose graveyard sessions' conversations (inside the gate — safe)
+    /// 2. Drain every registered session's op buffer in FIFO order (mutations, prompts w/ media)
+    /// 3. Run ONE Infer() when any prompt was flushed or the executor has pending tokens
     ///
-    /// No locking — the coordinator is the only thread touching conversations.
-    /// Sessions buffer their operations and wait for the coordinator to process them.
+    /// Per-session try/catch: one bad op must not abort the cycle for other sessions;
+    /// the failure is recorded on the session so its requesting call can report it.
     /// </summary>
     public async Task<DecodeResult> RunInferCycleAsync(CancellationToken ct = default)
     {
@@ -96,60 +100,71 @@ public sealed class BatchInferenceCoordinator : IDisposable
 
     private async Task<DecodeResult> RunInferCycleCoreAsync(CancellationToken ct)
     {
-        // Snapshot sessions under lock — quick, no Infer() delay
+        // 0. Dispose retired conversations — INSIDE the gate, so no in-flight Infer can
+        //    race the native dispose (fixes the dispose-vs-cycle crash race).
+        List<BatchSession> dead;
+        lock (_sessionsLock)
+        {
+            dead = new List<BatchSession>(_graveyard);
+            _graveyard.Clear();
+        }
+        foreach (var session in dead)
+        {
+            try { session.DisposeConversationNow(); }
+            catch (Exception ex)
+            {
+                _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] retire-dispose failed: {ex.Message}");
+            }
+        }
+
+        // Snapshot live sessions under lock — quick, no Infer() delay
         List<BatchSession> snapshot;
         lock (_sessionsLock)
             snapshot = _sessions.ToList();
 
-        // 1. Apply pending mutations (compaction, reset, save) BEFORE flushing prompts
+        // 1. Drain each session's op buffer in FIFO order. FIFO preserves request
+        //    ordering: a Save enqueued before a Reset is applied before it — nothing
+        //    is dropped, and concurrent writers can never overwrite each other.
+        var anyPromptFlushed = false;
         foreach (var session in snapshot)
         {
-            var mutation = session.TakePendingMutation();
-            if (mutation == null) continue;
-
-            try
+            while (session.TryDequeueOp(out var op))
             {
-                switch (mutation.Type)
+                var ok = false;
+                try
                 {
-                    case PendingMutationType.Save: session.ApplySave(); break;
-                    case PendingMutationType.Rewind: session.ApplyRewind(); break;
-                    case PendingMutationType.Reset: session.ApplyReset(); break;
+                    ok = session.ApplyOp(op);
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] {mutation.Type} failed: {ex.Message}");
+                catch (Exception ex)
+                {
+                    _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] {op.Type} failed: {ex.Message}");
+                    continue;
+                }
+
+                if (ok && op.Type == PendingMutationType.Prompt)
+                    anyPromptFlushed = true;
+                else if (!ok)
+                    _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] {op.Type} failed (see session error)");
             }
         }
 
-        // 2. Flush all pending prompts to conversations.
-        // Per-session try/catch: one bad prompt (e.g. already-prompted) must not
-        // abort the whole cycle for the other sessions.
-        foreach (var session in snapshot)
+        // 2. Run ONE Infer() when there is actual decode work: a flushed prompt, or
+        //    tokens already queued on the executor. Mutation-only cycles (Save/Rewind/
+        //    Reset) need no decode — skipping the Infer keeps those paths cheap.
+        if (anyPromptFlushed || _executor.BatchedTokenCount > 0 || _executor.BatchQueueCount > 0)
         {
-            var pendingPrompt = session.TakePendingPrompt();
-            if (pendingPrompt == null) continue;
-            try
+            var result = await _executor.Infer(ct);
+
+            if (result != DecodeResult.Ok)
             {
-                var pendingImages = session.TakePendingImages();
-                session.ApplyPrompt(pendingPrompt, pendingImages);
+                _logger.Warn("BatchInferenceCoordinator",
+                    $"[{_modelId}] Infer() returned {result} (batchedTokens={_executor.BatchedTokenCount}, queueDepth={_executor.BatchQueueCount})");
             }
-            catch (Exception ex)
-            {
-                _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] Prompt flush failed: {ex.Message}");
-            }
+
+            return result;
         }
 
-        // 3. Run ONE Infer() for ALL conversations with pending tokens
-        var result = await _executor.Infer(ct);
-
-        if (result != DecodeResult.Ok)
-        {
-            _logger.Warn("BatchInferenceCoordinator",
-                $"[{_modelId}] Infer() returned {result} (batchedTokens={_executor.BatchedTokenCount}, queueDepth={_executor.BatchQueueCount})");
-        }
-
-        return result;
+        return DecodeResult.Ok;
     }
 
     /// <summary>Create a new conversation on the shared executor.</summary>
@@ -163,30 +178,15 @@ public sealed class BatchInferenceCoordinator : IDisposable
     /// <summary>The shared context (for tokenization/detokenization).</summary>
     public LLamaContext Context => _executor.Context;
 
+    /// <summary>
+    /// Dispose the executor. Retired sessions' conversations live in the shared context —
+    /// disposing the executor frees the whole shared KV pool, so no conversation can leak
+    /// past shutdown even if it never got a cleanup cycle.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
         _executor.Dispose();
     }
-}
-
-// ── Pending operation types (buffered by sessions, applied by coordinator) ──
-
-internal enum PendingMutationType
-{
-    Save,
-    Rewind,
-    Reset
-}
-
-/// <summary>
-/// A pending mutation buffered by a <see cref="BatchSession"/>. The coordinator
-/// applies these before the next Infer() cycle. Sessions can buffer mutations
-/// freely (e.g. compaction) without touching the shared context — the coordinator
-/// handles the actual conversation manipulation.
-/// </summary>
-internal sealed class PendingMutation
-{
-    public PendingMutationType Type { get; init; }
 }
