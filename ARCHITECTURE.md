@@ -1,25 +1,22 @@
 # ECAssistantLLM — Architecture (as-is)
 
-**Updated:** 2026-09-25 · **Status:** ✅ 0 errors, 0 warnings | LDC enforcement PASSED (210 types)
-**Addendum 2026-09-25 (`batch_context_size` REMOVED — Emre):** The batch KV pool inherits each model's `context_size` directly — ONE knob, matching Ollama's single `num_ctx` philosophy. `BatchedExecutorHost` sizes each `BatchedExecutor` from `ModelConfig.ContextSize`; the `batch_context_size` server key was removed entirely (old config files with the key are silently ignored — unknown JSON fields are skipped). No override knob remains: if the batch pool ever needs a different size, that's a deliberate future feature, not a hidden second knob.
-**Addendum 2026-09-25 (batch concurrency — CURRENT MODEL, supersedes the buffer mechanics described in the older addenda below):** Requests enqueue ops into a thread-safe FIFO `BatchOpBuffer` (`ConcurrentQueue<PendingMutation>` — prompt w/ optional vision media, Save, Rewind, Reset). Each cycle, serialized by `_cycleGate`: dispose graveyard sessions → drain every session's ops FIFO → ONE `Infer()` when a prompt flushed or tokens pending. A per-session `SemaphoreSlim` request gate serializes concurrent requests to the same session for the whole request lifetime (non-blocking `WaitAsync`); different sessions batch together in one decode. Disposal is deferred: `Dispose()` retires the session to the coordinator graveyard; conversations are disposed INSIDE the cycle gate. `Coordinator.Dispose` acquires the gate before disposing the executor (no dispose-under-decode). Request isolation: overflow reset skips busy sessions; retired sessions abort generation/prefill cleanly (no false success); shutdown is explicit-only. Errors surface honestly (flush failures recorded on the session and returned to the caller). **No API changes** — the outside world sees identical endpoints, request/response shapes, and behavior either way.
-**Addendum 2026-09-25 (continuous batching, opt-in):** `continuous_batching` config flag (default false) activates LLamaSharp's `BatchedExecutor` for ALL inference. When off: zero new code executed, 100% current behavior. When on: 4 new Engine types (`BatchedExecutorHost`, `BatchInferenceCoordinator`, `BatchSession`, `BatchSessionRegistry`) provide batched decode — multiple conversations in ONE `llama_decode` call via shared `LLamaContext`. The server decides internally based on the config flag. **⚠ Buffer mechanics below superseded by the CURRENT MODEL addendum above** (FIFO op buffer replaced the original local-field single-slot buffers, which had a read-then-null lost-write race): sessions originally buffered prompts + mutations in local fields; coordinator's `RunInferCycleAsync` applied all pending mutations, flushed all prompts, then ran ONE `Infer()`. Coordinator remains the only thread touching conversations. `InferenceScheduler`/`SemaphoreSlim` untouched — when batching off: gates ALL inference; when on: not used (batch path only). **Addendum 2026-09-25 (audit fixes + vision serialization, 08:00):** Audit hardening of the batch path: (1) `RunInferCycleAsync` is serialized by `SemaphoreSlim _cycleGate` — sessions call cycles from their own request threads, and without the gate they raced on `TakePendingPrompt` (double Prompt → `ConversationAlreadyPromptedException`). (2) `PrefillAsync` no longer reports success on a failed `Infer` (DecodeResult checked). (3) `EvaluateAsync(maxTokens>1)` decodes between samples (stale logits fixed). (4) `ClientManager.Disconnect` destroys the disconnected client's batch sessions (leak fixed; `Program.cs` wires `BatchSessionRegistry`). (5) `ubatch` fixed at 512 (was context size). **Vision race fix:** the shared `MtmdWeights` media queue is per-executor FIFO — `BatchSession` previously loaded/cleared media on request threads, so concurrent vision sessions clobbered each other. Media is now buffered per-session (`_pendingImages`) and loaded by the coordinator INSIDE the serialized cycle (`ApplyPrompt`), mirroring the standard path where `InferenceScheduler` wraps vision; all request-thread Mtmd touches removed. **Test infra:** `BatchServerFixture.DisposeAsync` now cancels BOTH CTS — the std companion server was never cancelled, deadlocking xunit teardown after all tests passed (every `BatchVsStandardComparisonTests` run hung at teardown, 8/8 tests actually passing; now green in ~10s).
-**Isolation hardening (2026-09-25, PM — Emre: "each request must feel fully alone"):** (1) Overflow safety net `BatchSessionRegistry.ResetAllForOverflow` SKIPS sessions actively serving a request (`IsBusy` = request gate held) — a live stream is never reset out from under its request; busy sessions own their own overflow handling. (2) `IsProcessModel(null)` now resolves null → main model id, so a process-backed MAIN model routes to the process path instead of silently running on the in-process batch coordinator (batch path never sees process models — the outside world cannot tell what backend serves it). (3) Program.cs finally disposes `batchSessionRegistry` (retire sessions) BEFORE `batchExecutorHost` (gated executor dispose).
-**Re-audit fix (2026-09-25, PM):** retire-mid-stream guard — a session retired while a generation/prefill was still in flight could Sample/prefill on a DISPOSED conversation (graveyard cleanup disposed it inside the gate while the old request loop was between cycles). `InferAsync` now aborts on `_retired || _conversationDisposed` before/after each cycle; `PrefillAsync`/`EvaluateAsync` return failure instead of a false success when retired while queued.
-**Graceful shutdown (2026-09-25, PM):** `BatchInferenceCoordinator.Dispose` now acquires `_cycleGate` BEFORE disposing the executor — an in-flight native decode fully completes first (dispose-under-decode native crash eliminated); cycles re-check `_disposed` after acquiring the gate. Server shutdown is explicit-only: `ClientManager` ignores `onLastClientDisconnected` (callback kept for call-site compat); shutdown happens ONLY via `/eca/shutdown` or process signal.
-**Addendum 2026-09-25 (concurrency hardening, 2nd audit pass):** (1) **FIFO op buffer** — the single-slot fields (`_pendingPrompt`/`_pendingMutation`/`_pendingImages`) had a read-then-null race (concurrent write between read and null silently dropped the write) and last-write-wins semantics (Save+Reset dropped the Save). Replaced by thread-safe `BatchOpBuffer` (`ConcurrentQueue<PendingMutation>`); ops apply in FIFO request order — nothing lost under concurrent writers. (2) **Per-session request gate** — `SemaphoreSlim(1,1)` serializes concurrent requests to the same session (prefill/chat/evaluate/mutations), held for the whole streaming enumeration; non-blocking `WaitAsync` — different sessions still batch in one decode. (3) **Deferred disposal** — `Dispose` only retires the session into the coordinator graveyard; conversations are disposed INSIDE the cycle gate at the next cycle start (dispose-vs-inflight-cycle native crash race eliminated); executor disposal frees the whole shared pool at shutdown. Registry kicks a fire-and-forget cleanup cycle on destroy. (4) **Honest errors** — flush failures are recorded on the session and surfaced by `PrefillAsync`/`InferAsync`/`EvaluateAsync` instead of swallowed into a fake success; `Infer()` is skipped on mutation-only cycles. (5) Headroom clamp now counts the new prompt's tokens; `EstimatedVramMb` reports per-session token-scaled share; `LastActivity` updated on all paths; CS0618 pragma added in `EvaluateAsync`. **Test infra:** `BatchSessionBufferTests` replaced placeholder with 9 real `BatchOpBuffer` unit tests incl. concurrent-writer no-loss test.
-**Addendum 2026-09-24 (audit fixes, PM):** (1) **Per-request cancellation** — `LlmHttpServer` now creates a linked per-request CTS for every request; a client disconnect (broken pipe) cancels it, so generation stops instead of burning CPU into a dead connection. (2) **`ubatch_size` config key** — `ModelConfig.UbatchSize` (n_ubatch, default 0 = LLamaSharp 512). Reconciliation in `ModelSlot.CreateModelParams`: chat models get ubatch=config-if-set (causal models tolerate batch > ubatch); embedding (non-causal) models get ubatch **forced equal to batch** — the v15 `batch_size=1024` class default previously broke embedding loads (`batch must equal ubatch`). (3) `SessionRegistry` default `OverflowStrategy` is now `ThrowException` (was `TruncateAndReprefill` — throws on shift-incapable models mid-prefill where router guards never run); overflow surfaces via the typed recovery path. (4) Heartbeat endpoint/tests fully retired; `ClientRecord.ActiveSessions` dead field removed.
-**Addendum 2026-09-24 (v15, 16k-compaction fix):** (1) `SessionId=null` on a request is now a REAL stateless signal end-to-end — Core's `HttpStreamingEngine` no longer falls back to the engine's default session (legacy `?? _defaultSessionId` leaked decompose/planner/summary prompts into the MAIN session's KV cache); omitted `session_id` → server `StatelessExecutor` cold path. (2) Server-side headroom clamp (`RequestRouter.ClampToSessionHeadroom`): session requests get `max_tokens` clamped to `ContextSize − ApproxTokenCount − 16` on all four session paths (structured, plain chat, /v1/completions, native tools) — a single oversized turn can no longer run past the wall on shift-incapable models (`MemoryCanShift=false` throws on in-place truncation); overflow recovery (typed 413 + `ResetAllForOverflow` safety net) handles the rest.
+**Updated:** 2026-09-25 · **Status:** ✅ 0 errors, 0 warnings | LLamaSharp REMOVED — powered by ECAssistantInference
+**Addendum 2026-09-25 (LLamaSharp → ECAssistantInference migration):** ALL LLamaSharp dependencies removed. The server now uses ECAssistantInference (native C/C++ engine linking llama.cpp directly, P/Invoked from C#). Key type mapping: `LLamaWeights`→`IInferenceModel`, `LLamaContext`→`IInferenceContext`, `BatchedExecutor`→`IConversationPool`, `Conversation`→`IConversation`, `InferenceParams`/`DefaultSamplingPipeline`→`SamplingConfig`, `LLamaTemplate`→`eci_apply_chat_template` (native), `Grammar`→`IGrammar` (GBNF via `llama_sampler_init_grammar`), `InteractiveExecutor`→`IStandardExecutor`, `StatelessExecutor`→manual context+executor per request, `MtmdWeights`→`IVisionEncoder`. Three gaps closed: (1) Grammar threaded through `SessionContext.InferAsync(grammarStr, grammarRoot)`→`SampleWithGrammar()`, (2) Vision on standard executor via `eci_executor_prompt_with_images`, (3) Chat template via `model.ApplyChatTemplate()` (model-native, not hardcoded ChatML). Batch mode grammar not wired (standard path only — structured/tools use sessions). 107/107 non-model tests passing. Total test count across both repos: 201/201.
+**Addendum 2026-09-25 (batch_context_size REMOVED — Emre):** The batch KV pool inherits each model's `context_size` directly — ONE knob, matching Ollama's single `num_ctx` philosophy.
+**Addendum 2026-09-25 (batch concurrency — CURRENT MODEL):** Requests enqueue ops into thread-safe FIFO `BatchOpBuffer`. Each cycle, serialized by `_cycleGate`: dispose graveyard → drain ops FIFO → ONE `InferAll()` when a prompt flushed. Per-session `SemaphoreSlim` request gate serializes concurrent requests to the same session. Disposal deferred to cycle gate.
+**Addendum 2026-09-25 (continuous batching, opt-in):** `continuous_batching` config flag (default false) activates `IConversationPool` for ALL inference. When off: zero new code executed, 100% current behavior. When on: 4 Engine types (`BatchedExecutorHost`, `BatchInferenceCoordinator`, `BatchSession`, `BatchSessionRegistry`) provide batched decode — multiple conversations in ONE `llama_decode` call via shared `IInferenceContext`.
+**Addendum 2026-09-25 (audit fixes + vision serialization):** Cycle gate serializes mutations+flush+Infer. PrefillAsync checks InferResult. EvaluateAsync decodes between samples. ClientManager.Disconnect destroys batch sessions. Vision media buffered per-session, loaded by coordinator inside cycle gate.
+**Isolation hardening:** Overflow safety net skips busy sessions. Retire-mid-stream guard aborts on `_retired || _conversationDisposed`. Graceful shutdown acquires cycle gate before disposing executor.
 **History:** git log — this file describes the CURRENT state only.
 **Topical docs:** ARCHITECTURE-STRUCTURED-DECODING.md (decision grammar pipeline), ARCHITECTURE-BACKENDS.md (process backends)
 
 ## Overview
 
-ECAssistantLLM is a standalone console app that wraps **LLamaSharp** and exposes an
-OpenAI-compatible HTTP API with ECAssistant-specific extension endpoints. It is the
-**"model server" half** of the ECAssistant split. ECAssistantCore talks to it over
-HTTP/SSE and never touches LLamaSharp directly — this process owns the model, the
-weights, the GPU, and the per-session KV caches.
+ECAssistantLLM is a standalone console app that wraps **ECAssistantInference** (native C/C++
+llama.cpp engine) and exposes an OpenAI-compatible HTTP API with ECAssistant-specific
+extension endpoints. It is the **"model server" half** of the ECAssistant split.
+ECAssistantCore talks to it over HTTP/SSE and never touches native inference directly —
+this process owns the model, the weights, the GPU, and the per-session KV caches.
 
 - **Console app** (`Program.cs` top-level statements, `OutputType=Exe`)
 - **HttpListener-based** — zero external HTTP framework; `System.Net.HttpListener` only
@@ -31,113 +28,87 @@ weights, the GPU, and the per-session KV caches.
 
 ## OOP Principles
 
-- **Encapsulation:** Config and model DTOs are sealed classes. Config sections are mutable
-  (deserialized JSON, `{ get; set; }`); API DTOs are mutable request/response carriers.
-  Engine types hide all mutable state behind read-only properties.
-- **No globals / mutable statics:** All runtime dependencies are injected via constructors.
-  The only statics are *stateless* helpers: `SseStreamer` (stateless I/O utility), and
-  factory methods `LlmServerConfig.Load/TryLoad` and `ChatCompletionChunk.Delta/Finish`.
-  No static mutable state anywhere.
-- **No cross-dependencies (layered):** `Server → Engine → Config`; `Models` and `Root` are
-  leaf packages. Nothing depends upward.
-- **Single responsibility:** One primary type per file. `Engine` types own one concern each.
-- **Modular & mockable:** Behavior sits behind a single abstraction, `ILogger`, so logging
-  can be swapped/mocked. The server is self-contained (no other internal interfaces).
-- **Constructor injection throughout:** every Engine/Server type takes its dependencies in
-  its constructor with `ArgumentNullException` guards.
-- **`IDisposable` on every resource-owning type:** `ModelSlot`, `SessionContext`,
-  `SessionRegistry`, `MultiModelHost`, `ClientManager`, `LlmHttpServer`.
+- **Encapsulation:** Config and model DTOs are sealed classes. Engine types hide all mutable state behind read-only properties.
+- **No globals / mutable statics:** All runtime dependencies injected via constructors. Statics are stateless helpers only.
+- **No cross-dependencies (layered):** `Server → Engine → Config`; `Models` and `Root` are leaf packages.
+- **Single responsibility:** One primary type per file.
+- **Constructor injection throughout** with `ArgumentNullException` guards.
+- **`IDisposable` on every resource-owning type.**
 
 ## Project Structure
 
 ```
-ECAssistantLLM/                 # 22 .cs files, ~2,537 LOC
-├── Program.cs                  # Entry point: `[--port <N>] [path-to-llm-server.json]`, apply port override, wire components, run server, handle shutdown
-├── ServerLogger.cs            # ILogger interface + LogLevel enum + ServerLogger impl (file + console)
-├── ECAssistant.LLM.csproj      # net8.0 exe, LLamaSharp 0.27.0 + CPU/Cuda12/Vulkan backends, Microsoft.Extensions.Logging.Abstractions
-├── llm-server.json             # Server config (models, ports, inference defaults, logging)
+ECAssistantLLM/                 # ~22 .cs files
+├── Program.cs                  # Entry point: [--root <dir>] [--port <N>] [config.json]
+├── ServerLogger.cs            # ILogger interface + LogLevel enum + ServerLogger impl
+├── ECAssistant.LLM.csproj      # net8.0 exe, ECAssistantInference + Microsoft.Extensions.Logging.Abstractions
+├── llm-server.json             # Server config
 │
-├── Config/                    # Config loading + section models (leaf package)
-│    ├── LlmServerConfig.cs     # Root config: Load/TryLoad + Validate; static JsonOptions
-│    └── Models/                # Config section models
-│        ├── ServerSection.cs    # host, port, max_sessions, max_vram_mb + computed Prefix
-│        ├── ModelConfig.cs      # id, path, gpu_layers, context_size, threads, batch_size, is_embedding, backend (auto|llamasharp|process)
-│        ├── BackendsSection.cs  # backends_root, models_root, port_min/port_max (backend child processes)
-│        ├── InferenceDefaults.cs# max_tokens, temperature, top_p, top_k, repeat_penalty
-│        └── LoggingSection.cs   # level, file
-│
-├── Engine/Backends/            # Process backend (ternary/external models via child llama-server)
-│    ├── TernaryModelDetector.cs # GGUF header sniff: ternary-packed (PTQ1_0/PQ2_0) → Process backend
-│    ├── BackendSelector.cs      # ModelBackendKind per model: ternary → Process; explicit backend field overrides
-│    ├── BackendPortAllocator.cs  # Random port from configurable range (default 20000-25000), skips used
-│    ├── RuntimeManifest.cs / PlatformId.cs / PlatformRuntimeCatalog.cs / RuntimeLocator.cs  # pre-installed Prism llama.cpp runtimes (NEVER downloaded at runtime)
-│    ├── IProcessModelHost.cs    # DI seam over the process host
-│    ├── ProcessModelInstance.cs # One llama-server child process: spawn, health check, stop
-│    ├── ProcessModelHost.cs     # Supervises child processes; lazy start, race-safe; stateless proxy endpoint
-│    ├── ProcessSession.cs       # Transcript-backed session for process models (session parity, prefix cache)
-│    ├── ProcessSessionRegistry.cs # Client-namespaced process sessions; mirrors SessionRegistry API
-│    ├── ProcessPayloadFactory.cs  # Single source for child chat payloads: sampling parity with in-process (explicit defaults), grammar/thinking fields
-│    └── ProcessStatelessClient.cs # Stateless (no-transcript) child inference; ThinkFilter/structured handled by router, in-process shapes
-│
-├── Engine/                    # Core engine (owns LLamaSharp types)
-│    ├── MultiModelHost.cs       # Loads/unloads 2+ models; provides slots by ID; ModelInfo record
-│    ├── ModelSlot.cs            # One model: LLamaWeights + ModelParams + optional LLamaEmbedder
-│    ├── SessionRegistry.cs      # Thread-safe session CRUD, namespaced by clientId; SessionStatusInfo record
-│    ├── SessionContext.cs       # Per-session InteractiveExecutor + KV cache: prefill/infer/rewind/save/reset
-│    ├── InferenceScheduler.cs   # Serialized inference via SemaphoreSlim(1,1); nested InferenceReleaser (IAsyncDisposable)
-│    ├── VramBudget.cs           # Estimated VRAM tracking + budget enforcement
-│    ├── ClientManager.cs        # Client registration + explicit disconnect (no eviction/heartbeat — clients live until Disconnect); ClientRecord (internal) + ClientInfo record
-│    ├── DecisionGrammar.cs      # v14 GBNF grammar — forces valid DecisionEnvelope JSON output at sampler level
-│    └── StructuredDecoder.cs    # v14 Parses grammar output → DecisionEnvelope DTO; escapes raw control chars
-│
+├── Config/                    # Config loading + section models
+├── Engine/Backends/            # Process backend (ternary/external models)
+├── Engine/                    # Core engine (owns ECAssistantInference types)
+│    ├── MultiModelHost.cs       # Loads/unloads models; provides slots by ID
+│    ├── ModelSlot.cs            # One model: IInferenceModel + config + IVisionEncoder
+│    ├── SessionRegistry.cs      # Thread-safe session CRUD, namespaced by clientId
+│    ├── SessionContext.cs       # Per-session IStandardExecutor + KV cache
+│    ├── BatchedExecutorHost.cs  # Owns BatchInferenceCoordinator per model (batch mode)
+│    ├── BatchInferenceCoordinator.cs # Coordinates batched decode across sessions
+│    ├── BatchSession.cs         # Wraps IConversation on shared pool
+│    ├── InferenceScheduler.cs   # Serialized inference via SemaphoreSlim(1,1)
+│    ├── VramBudget.cs           # Estimated VRAM tracking
+│    ├── ClientManager.cs        # Client registration + disconnect
+│    ├── DecisionGrammar.cs      # GBNF grammar for structured output
+│    └── StructuredDecoder.cs    # Parses grammar output → DecisionEnvelope
 ├── Server/
-│    ├── LlmHttpServer.cs        # HttpListener accept loop; dispatches each request to RequestRouter; catches JsonException → 400
-│    ├── RequestRouter.cs        # Path/method routing + all endpoint handlers; v14.7 TryParseCompleteEnvelope() early termination
-│    └── SseStreamer.cs          # Stateless helper: SSE stream (chat + completion), JSON read/write
-│
-└── Models/                    # API request/response DTOs (leaf package)
-     ├── ChatCompletionRequest.cs# OpenAI chat request + ECAssistant session_id; ChatMessage
-     ├── ChatCompletionChunk.cs  # SSE chunk + ChunkChoice + ChunkDelta; Delta()/Finish() factories
-     ├── CompletionModels.cs     # OpenAI text completion: CompletionRequest/Response/Chunk/Choice (streaming + non-streaming)
-     ├── EmbeddingModels.cs      # EmbeddingRequest / EmbeddingResponse / EmbeddingData
-     ├── TokenizeModels.cs       # TokenizeRequest / TokenizeResponse
-     └── ApiModels.cs            # ErrorResponse/ErrorDetail, SuccessResponse, client/session/model DTOs
+│    ├── LlmHttpServer.cs        # HttpListener accept loop
+│    ├── RequestRouter.cs        # Path/method routing + all endpoint handlers
+│    └── SseStreamer.cs          # SSE stream helper
+└── Models/                    # API request/response DTOs
 ```
 
 ## Dependency Flow
 
 ```
-Program.cs  (composition root — wires everything by hand, no DI container)
+Program.cs  (composition root)
    │
    ▼
 Server/LlmHttpServer  ──►  Server/RequestRouter
-   │   (accept loop,        (path/method dispatch + all handlers,
-   │    per-request Task)   SSE via SseStreamer)
+   │                        (path/method dispatch, SSE, prompt building)
    │        │
    │        ▼
-   │   Engine/MultiModelHost  ──►  Engine/ModelSlot  ──►  LLamaSharp
-   │        │                     (LLamaWeights, ModelParams, LLamaEmbedder)
+   │   Engine/MultiModelHost  ──►  Engine/ModelSlot  ──►  ECAssistantInference
+   │        │                     (IInferenceModel, ModelConfig, IVisionEncoder)
    │        ▼
-   │   Engine/SessionRegistry ──► Engine/SessionContext ──► LLamaSharp
-   │        │                    (InteractiveExecutor, KV cache, LLamaContext)
+   │   Engine/SessionRegistry ──► Engine/SessionContext ──►  ECAssistantInference
+   │        │                    (IStandardExecutor, IInferenceContext, KV cache)
    │        ▼
-   │   Engine/Backends/ProcessSessionRegistry ──► ProcessSession ──► HttpClient
-   │        │                     (transcript-backed; child llama-server slot KV/prefix cache)
+   │   Engine/BatchedExecutorHost ──► BatchInferenceCoordinator ──► IConversationPool
+   │        │                                             ──► IConversation (batched)
    │        ▼
-   │   Engine/Backends/ProcessModelHost ──► ProcessModelInstance ──► llama-server child
-   │        │                     (ternary/Bonsai; random port via BackendPortAllocator)
-   │        ▼
-   │   Engine/InferenceScheduler  (SemaphoreSlim gate — one inference at a time)
+   │   Engine/InferenceScheduler  (SemaphoreSlim gate)
    │   Engine/VramBudget          (per-session VRAM accounting)
-   │   Engine/ClientManager       (registration / explicit disconnect)
+   │   Engine/ClientManager       (registration / disconnect)
    ▼
-Config/LlmServerConfig  (root config, validated once at startup)
-Models/  (DTOs shared by Server + Config)
+Config/LlmServerConfig  (root config)
+Models/  (DTOs)
 ```
 
-**LLamaSharp is the only external NuGet dependency** (plus `Microsoft.Extensions.Logging.Abstractions`
-for `NullLogger<T>` used to silence LLamaSharp's own logging). The HTTP layer adds no framework —
-`System.Net.HttpListener` + `System.Text.Json` only.
+**ECAssistantInference is the only external dependency** (plus `Microsoft.Extensions.Logging.Abstractions`).
+
+## Inference Engine Mapping
+
+| ECAssistantLLM Type | ECAssistantInference Interface | Purpose |
+|---|---|---|
+| `ModelSlot.Model` | `IInferenceModel` | Loaded GGUF model |
+| `SessionContext._context` | `IInferenceContext` | Context with KV cache |
+| `SessionContext._executor` | `IStandardExecutor` | Standard prompt→infer→sample loop |
+| `BatchInferenceCoordinator._pool` | `IConversationPool` | Pre-allocated conversation pool |
+| `BatchSession._conversation` | `IConversation` | Leased conversation (seq_id) |
+| `ModelSlot.Vision` | `IVisionEncoder` | mmproj projector for vision |
+| `SessionContext._savedState` | `IInferenceState` | KV snapshot for rewind |
+| `SamplingConfig` | `SamplingConfig` | Temperature, top-k, top-p, penalties |
+| Grammar (GBNF) | `IGrammar` | `llama_sampler_init_grammar` |
+| Chat template | `ApplyChatTemplate()` | `llama_chat_apply_template` (model-native) |
 
 ## Key Components
 
@@ -145,217 +116,120 @@ for `NullLogger<T>` used to silence LLamaSharp's own logging). The HTTP layer ad
 
 | Component | Purpose |
 |---|---|
-| `MultiModelHost` | Loads all configured models at startup; runtime load/unload; resolves slots by ID, main slot, embedding slot; emits `ModelInfo` |
-| `ModelSlot` | Wraps one model: `LLamaWeights` + `ModelParams` (+ `LLamaEmbedder` for embedding models); `Load`/`Unload`/`Dispose`; resolves model path across candidate dirs |
-| `SessionRegistry` | Thread-safe (`ConcurrentDictionary`) session CRUD keyed by `{clientId}:{sessionId}`; enforces `MaxSessions`; builds `SessionContext`; emits `SessionStatusInfo` |
-| `SessionContext` | Per-session `InteractiveExecutor` + `LLamaContext` (own KV cache); `PrefillAsync`, `InferAsync` (streaming), `SaveState`, `RewindAsync`, `Reset`; estimates token count + VRAM |
-| `InferenceScheduler` | Serializes all inference via `SemaphoreSlim(1,1)` FIFO; `AcquireAsync` returns a disposable `InferenceReleaser` (nested, `IAsyncDisposable`) |
-| `VramBudget` | Lock-guarded estimated-VRAM accounting; `TryReserve`/`Release`; `null` max = unlimited |
-| `ClientManager` | Client registration (UUID id) + explicit disconnect (frees all client sessions). No heartbeat/eviction — clients live until Disconnect |
-| `PromptCacheSession` | Persistent warm prompt-cache per model using only supported `SaveState`/`LoadState` snapshots on fresh executors. Reuse paths: growth (suffix decode) → stable-template checkpoint → cold. Runs only when `RequestRouter.EnableWarmPromptCache = true` |
+| `MultiModelHost` | Loads all configured models at startup; runtime load/unload; resolves slots by ID |
+| `ModelSlot` | Wraps one model: `IInferenceModel` + config + `IVisionEncoder`; `Load`/`Unload`/`Dispose` |
+| `SessionRegistry` | Thread-safe session CRUD keyed by `{clientId}:{sessionId}`; enforces `MaxSessions` + VRAM |
+| `SessionContext` | Per-session `IStandardExecutor` + `IInferenceContext` (own KV cache); `PrefillAsync`, `InferAsync` (streaming, grammar, vision), `SaveState`, `RewindAsync`, `Reset`, `EvaluateAsync` |
+| `InferenceScheduler` | Serializes all inference via `SemaphoreSlim(1,1)` FIFO |
+| `VramBudget` | Lock-guarded estimated-VRAM accounting |
+| `ClientManager` | Client registration + explicit disconnect |
 
-### Engine/Backends (process backend — ternary/external models)
+### Batch Engine (opt-in via `continuous_batching`)
 
 | Component | Purpose |
 |---|---|
-| `TernaryModelDetector` | Sniffs GGUF headers (PTQ1_0/PQ2_0 ternary packing); stateless utility |
-| `BackendSelector` | Resolves `ModelBackendKind` per model: ternary → Process; explicit `backend` field overrides; default LlamaSharp |
-| `BackendPortAllocator` | Random port from configurable range (default 20000–25000) for child llama-server processes; skips used; throws when exhausted |
-| `RuntimeManifest` / `PlatformId` / `PlatformRuntimeCatalog` / `RuntimeLocator` | Pre-installed Prism llama.cpp runtimes per OS; the server NEVER downloads — missing pieces are hard errors pointing to the setup wizard |
-| `IProcessModelHost` | DI seam: `EnsureStartedAsync(config)`, `EnsureStartedUrlAsync(modelId)`, `Instances`, `StopAllAsync` |
-| `ProcessModelInstance` | One llama-server child: spawn, 120 s health wait, graceful stop, dispose; OpenAI-compatible endpoint on its port |
-| `ProcessModelHost` | Supervises child processes; per-model lazy start with in-flight gate (race-safe); used for 1:1 stateless proxying |
-| `ProcessSession` | Transcript-backed session for process models. Mirrors `SessionContext` contract: `PrefillAsync` (warms child's prefix cache with dummy user turn — Qwen templates reject system-only), `InferAsync` (streams content deltas; failed turns roll back appended messages), `SaveState`/`RewindAsync`/`Reset` (transcript snapshots under an IO lock). Efficiency comes from the child's slot KV/prefix cache; correctness never depends on it. `EstimatedVramMb = 0` — KV lives in the child |
-| `ProcessSessionRegistry` | Client-namespaced process sessions; same API/contract as `SessionRegistry` (MaxSessions enforced, no VramBudget) |
-
-**Client-facing parity:** `session_id` on a process model goes through `ProcessSessionRegistry` —
-create/prefill/rewind/save-state/reset/status/destroy + streaming chat behave identically to
-in-process KV sessions. Structured mode (grammar-enforced) stays LlamaSharp-only → clean 400.
+| `BatchedExecutorHost` | Owns `BatchInferenceCoordinator` per model; creates `IInferenceContext` + `IConversationPool` |
+| `BatchInferenceCoordinator` | Coordinates `InferAll()` across sessions; cycle gate serializes; graveyard disposal |
+| `BatchSession` | Wraps `IConversation`; FIFO op buffer; per-session request gate; deferred disposal |
+| `BatchSessionRegistry` | Client-namespaced batch sessions; mirrors `SessionRegistry` API |
 
 ### Server
 
 | Component | Purpose |
 |---|---|
-| `LlmHttpServer` | `HttpListener` accept loop; spawns a `Task` per request → `RequestRouter`; owns `IDisposable` teardown order |
-| `RequestRouter` | Routes by path+method to OpenAI and `/eca/*` handlers; validates `X-Client-Id`; builds prompts/`InferenceParams`; runs stateless inference for session-less requests; v15 `ClampToSessionHeadroom` bounds session generation to remaining KV headroom |
-| `SseStreamer` | Stateless helper: `StreamAsync` (chat SSE chunks + `[DONE]`), `StreamCompletionAsync` (completion SSE chunks), `WriteJsonAsync`, `ReadJsonAsync<T>` |
-
-### Root / Config
-
-| Component | Purpose |
-|---|---|
-| `Program.cs` | Composition root: parse `[--root <dir>] [--port <N>] [path-to-llm-server.json]`, root-only model path resolution (`{root}/{path}` or `{root}/models/{filename}`; absolute paths outside root → fail), `LlmServerConfig.TryLoad`, apply CLI port override (after load, before start, logged), build logger, wire Engine+Server, handle Ctrl+C / ProcessExit, `RunAsync`, dispose |
-| `ILogger` / `LogLevel` / `ServerLogger` | Single logging abstraction (console + file, thread-safe via lock); the only internal interface |
-| `LlmServerConfig` | Root config loader: `Load`/`TryLoad` + `Validate` (port range, ≥1 model, unique ids, non-empty id/path); shared `JsonOptions` |
-| `ServerSection` / `ModelConfig` / `InferenceDefaults` / `LoggingSection` | JSON section models (mutable, deserialized) |
-| `Models/*` | OpenAI-compatible + ECAssistant API request/response DTOs |
+| `LlmHttpServer` | `HttpListener` accept loop; per-request `Task` → `RequestRouter` |
+| `RequestRouter` | Routes by path+method; builds prompts via `ApplyChatTemplate`; creates `SamplingConfig`; grammar via `SampleWithGrammar`; stateless inference via manual context+executor |
+| `SseStreamer` | SSE stream helper (chat + completion), JSON read/write |
 
 ## API Surface
 
-All requests that touch a session carry an `X-Client-Id` header. JSON is camelCase via `JsonPropertyName`.
+All requests that touch a session carry `X-Client-Id`. JSON is camelCase.
 
 ### OpenAI-Compatible Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/v1/chat/completions` | Chat completion, streaming (SSE) + non-streaming; routes to a session via `session_id` or runs stateless |
-| POST | `/v1/completions` | Text completion, streaming (SSE) + non-streaming; routes to a session via `session_id` or runs stateless; supports `stop`, custom params |
-| POST | `/v1/embeddings` | Generate embeddings via the embedding model's `LLamaEmbedder` |
-| GET | `/v1/models` | List loaded models (OpenAI shape: `object:"list"`, `owned_by:"ecassistant"`, `loaded`, `is_embedding`) |
+| POST | `/v1/chat/completions` | Chat completion (streaming + non-streaming); session via `session_id` or stateless |
+| POST | `/v1/completions` | Text completion (streaming + non-streaming) |
+| POST | `/v1/embeddings` | Embeddings via `IInferenceModel.GetEmbeddings()` |
+| GET | `/v1/models` | List loaded models |
 
 ### ECAssistant Extension Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/eca/health` | Health: status, version, loaded models, session/client counts, uptime |
-| POST | `/eca/clients` | Register a client → returns `client_id` (UUID) + server version |
-| DELETE | `/eca/clients/{id}` | Disconnect client → frees all its sessions (in-process AND process-backed) |
-| POST | `/eca/sessions` | Create a session (own KV cache); checks `MaxSessions` + VRAM budget (503 if over) |
-| POST | `/eca/sessions/{id}/prefill` | Prefill a static prefix into the session's KV cache |
-| POST | `/eca/sessions/{id}/rewind` | Rewind KV cache to the last saved state |
-| POST | `/eca/sessions/{id}/save-state` | Snapshot current KV cache state |
-| POST | `/eca/sessions/{id}/reset` | Discard + recreate the KV cache (caller must re-prefill). Process models: transcript reset |
-| GET | `/eca/sessions/{id}/status` | Session status: model, prefilled, token count, context, VRAM, timestamps. Works for process sessions too (VRAM = 0) |
-| DELETE | `/eca/sessions/{id}` | Destroy a session → frees KV cache + releases VRAM |
-| GET | `/eca/models` | List all model slots with status (raw `ModelInfo` shape) |
-| POST | `/eca/models/load` | Load a model at runtime (`id`, `path`, gpu_layers, context_size, threads, is_embedding) |
-| POST | `/eca/models/unload` | Unload a model at runtime (`id`) |
-| POST | `/eca/tokenize` | Tokenize text → token count + token IDs (via a temporary context) |
-
-**Session-less inference:** a `/v1/chat/completions` with no `session_id` (or a session that
-doesn't exist is a 404) runs through `StatelessInferAsync` on a fresh `StatelessExecutor` — no
-KV cache, fresh each call.
-
-## Multi-Client Design
-
-- **Registration:** a Core instance calls `POST /eca/clients` → receives a UUID `client_id`.
-  All subsequent requests send it in the `X-Client-Id` header.
-- **Session namespacing:** sessions are keyed `{clientId}:{sessionId}` in a
-  `ConcurrentDictionary`, so two clients can reuse the same `session_id` without collision.
-- **Client lifetime (2026-09-23):** no heartbeat, no eviction. Clients stay registered until
-  an explicit `DELETE /eca/clients/{id}` (Disconnect). Eviction was removed because idle or
-  briefly-disconnected clients must never 401 mid-session.
-- **VRAM budget:** `VramBudget` accumulates each session's `EstimatedVramMb` (approx
-  `2 · layers · ctx · dim · sizeof(half)`). `POST /eca/sessions` calls `TryReserve`; on
-  failure it rolls back the session and returns **503 `vram_exceeded`**. `null`
-  `max_vram_mb` = unlimited.
-- **Inference scheduling:** `InferenceScheduler` gates every inference behind a
-  `SemaphoreSlim(1,1)` FIFO — **one model, one inference at a time**, even across clients.
-  Awaiting requests contribute to `QueueDepth`.
-- **Teardown cascade:** client disconnect / eviction → `SessionRegistry.DestroyClientSessions`
-  disposes each `SessionContext` (frees its `LLamaContext`/KV cache) and releases its VRAM.
+| GET | `/eca/health` | Health: status, models, sessions, uptime |
+| POST | `/eca/clients` | Register client → UUID |
+| DELETE | `/eca/clients/{id}` | Disconnect client → frees sessions |
+| POST | `/eca/sessions` | Create session (own KV cache) |
+| POST | `/eca/sessions/{id}/prefill` | Prefill static prefix into KV |
+| POST | `/eca/sessions/{id}/rewind` | Rewind to saved state |
+| POST | `/eca/sessions/{id}/save-state` | Snapshot KV cache |
+| POST | `/eca/sessions/{id}/reset` | Discard + recreate KV |
+| POST | `/eca/sessions/{id}/evaluate` | Prompt-only feed (no conversation turn) |
+| GET | `/eca/sessions/{id}/status` | Session status (tokens, headroom, has_saved_state) |
+| DELETE | `/eca/sessions/{id}` | Destroy session → free KV |
+| GET | `/eca/models` | List model slots |
+| POST | `/eca/models/load` | Load model at runtime |
+| POST | `/eca/models/unload` | Unload model |
+| POST | `/eca/tokenize` | Tokenize text → token IDs |
 
 ## Config (`llm-server.json`)
-
-Loaded once at startup by `LlmServerConfig.TryLoad` (falls back to CWD if not next to the
-executable). `Validate` enforces: port 1–65535, ≥1 model, unique non-empty model ids/paths.
 
 ```jsonc
 {
   "server": {
-    "host": "localhost",
-    "port": 8420,
-    "max_sessions": 8,               // hard cap on concurrent SessionContexts
-    "max_vram_mb": null,            // null = unlimited; else reject over-budget sessions (503)
-    "heartbeat_timeout_sec": 90,     // eviction timer interval + staleness cutoff
-    "heartbeat_interval_sec": 30     // advisory: how often clients should heartbeat
+    "host": "localhost", "port": 8420,
+    "max_sessions": 8, "max_vram_mb": null,
+    "continuous_batching": false
   },
   "models": [
-    { "id": "main",       "path": "models/qwen3-8b-q4_k_m.gguf",
+    { "id": "main", "path": "models/qwen3-8b-q4_k_m.gguf",
       "gpu_layers": 99, "context_size": 32768, "threads": -1,
-      "is_embedding": false },
-    { "id": "embeddings", "path": "models/all-MiniLM-L6-v2-q4_k_m.gguf",
-      "gpu_layers": 0, "context_size": 2048, "threads": -1,
-      "is_embedding": true }
+      "flash_attn": true, "kv_cache": "f16",
+      "is_embedding": false }
   ],
   "inference": {
     "max_tokens": 512, "temperature": 0.3, "top_p": 0.95,
     "top_k": 40, "repeat_penalty": 1.1
   },
-  "backends": {
-    "backends_root": "backends",       // pre-installed Prism llama.cpp runtimes
-    "models_root": "models",
-    "port_min": 20000,                 // random port range for child llama-server processes
-    "port_max": 25000
-  },
   "logging": { "level": "info", "file": "ecassistant-llm.log" }
 }
 ```
 
-Section semantics:
-
-- **`server`** — binding (`host`/`port` → computed `Prefix`), session cap, VRAM budget. `gpu_layers`, `threads`, `batch_size` are **server-side** concerns (not in Core config). `--port <N>` on the CLI overrides `server.port` after config load.
-- **`models`** — one `ModelConfig` each. `gpu_layers` is clamped to `[0,100]`; `threads: -1` → auto; `batch_size` (class default 1024) is the logical batch (n_batch); `ubatch_size` (v15, default 0 = LLamaSharp 512) is the physical micro-batch (n_ubatch) — embedding models always get `ubatch = batch` (llama.cpp requires equality for non-causal models). First non-embedding model = **main**; first embedding model = **embeddings**. Embedding models use `pooling_type` (`mean`/`cls`/`last`/`none`, default `mean`). `mmproj_path` (optional) enables vision: MTMD projector loaded lazily from the mmproj GGUF on first vision request (`SupportsVision` = true). `backend`: `"auto"` (default — ternary-detected GGUF → process), `"llamasharp"`, or `"process"` (external child llama-server). Process models may also carry `download_url`/`download_sha256` for the WIZARD to install weights (the server itself never downloads).
-- **`backends`** — process-backend home (`backends_root`, `models_root`) and the random port range (`port_min`/`port_max`, defaults 20000–25000) for child llama-server processes.
-
 ## Vision (MTMD / mmproj)
 
-- **Request format:** OpenAI multimodal content parts — `"content": [{"type":"text","text":...},{"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}]`. Parsed by `ChatMessageContentConverter` (on the `messages` array): text parts joined, each image part becomes an `<__image__>` marker in `Content` + decoded bytes in `Images`. Only base64 data URIs are accepted (no URL fetch).
-- **Model wiring:** `ModelSlot.Mmproj` lazily loads `MtmdWeights.LoadFromFile(mmproj_path, weights)` on first use. Sessions created via `SessionRegistry.CreateSession` attach the slot's projector; `SessionContext.Reset` preserves it.
-- **Warm sessions:** `SessionContext.InferAsync(prompt, ct, images)` — under `_ioLock`, media is queued into the projector FIFO before inference (one marker per image, in order), cleared after.
-- **Stateless:** `StatelessVisionInferAsync` builds a fresh context + MTMD executor per request. Vision requests always bypass the warm prompt cache (the projector's media queue is global per model).
-- **Capability:** `/eca/health` returns `"vision": true` when any loaded model has vision. Vision requests to non-vision models → 400.
-
-- **`inference`** — default sampling params, overridable per-request via `temperature`/`top_p`/`top_k`/`max_tokens`/`repeat_penalty` on the chat request.
-- **`logging`** — `level` (`debug`/`info`/`warn`/`error`) + log file path (resolved relative to the config dir).
+- **Model wiring:** `ModelSlot.Vision` lazily loads `IVisionEncoder` via `IInferenceModel.LoadVisionEncoder(mmprojPath)` on first use.
+- **Warm sessions:** `SessionContext.InferAsync(prompt, ct, images)` → `IStandardExecutor.PromptWithImages()` (native `eci_executor_prompt_with_images`).
+- **Batch mode:** `IConversation.PromptWithImages()` (native `eci_conversation_prompt_with_images`).
+- **Stateless:** `StatelessVisionInferAsync` creates fresh context + executor per request, uses `PromptWithImages()`.
+- **Chat template:** `BuildPromptFromMessages` calls `model.ApplyChatTemplate(null, messages, addAssistant: true)` → native `llama_chat_apply_template` (Qwen, Llama, ChatML, etc. — model-native, not hardcoded).
+- **Grammar:** `SessionContext.InferAsync(grammarStr, grammarRoot)` creates `IGrammar` internally → `SampleWithGrammar()` in the generation loop. RequestRouter passes `DecisionGrammar` / `ToolCallGrammar` / `req.Grammar`.
 
 ## Lifecycle
 
-1. **Startup** — `Program.cs` parses `[--root <dir>] [--port <N>] [path-to-llm-server.json]`, resolves the root (arg required when launched by Core; standalone falls back to CWD), resolves the config path (explicit arg → `{root}/llm-server.json`; default generated ONLY for standalone runs with no args), `LlmServerConfig.TryLoad` + `Validate`, applies the `--port` override to `server.port` (after load, before start, logged), builds `ServerLogger`, constructs `MultiModelHost`/`InferenceScheduler`/`VramBudget` → `LoadAll()` (all model paths resolved strictly inside `--root`; absolute paths outside root → fail), then `SessionRegistry`, `ClientManager`, `LlmHttpServer`.
-2. **Model loading** — `MultiModelHost.LoadAll()` creates a `ModelSlot` per config and calls `Load()` (loads `LLamaWeights`, and for embedding models a `LLamaEmbedder` + a probe call to determine `EmbeddingDim`). A load failure is fatal at startup.
-3. **Server run** — `LlmHttpServer.RunAsync` starts the listener and accepts a `Task` per request; each is dispatched to `RequestRouter.RouteAsync`.
-4. **Client connect** — Core `POST /eca/clients` → UUID `client_id` (heartbeat mechanism removed 2026-09-23 — no client eviction).
-5. **Session creation** — Core `POST /eca/sessions` with `session_id` (+ optional `model_id`) → `SessionRegistry.CreateSession` builds a `SessionContext` (own `LLamaContext`/KV cache), guarded by `MaxSessions` and `VramBudget.TryReserve` (503 on over-budget).
-6. **Prefill** — `POST /eca/sessions/{id}/prefill` caches the static prefix (system prompt + tools) into the KV cache; 120s internal timeout.
-7. **Inference** — `POST /v1/chat/completions` with `session_id` acquires the scheduler gate and streams tokens via SSE (or returns a full JSON body when `stream:false`). No `session_id` → stateless executor. v15: session requests get `max_tokens` clamped to remaining KV headroom (`ClampToSessionHeadroom`), so one turn cannot exceed the context wall on shift-incapable models.
-8. **Turn management** — after each turn Core may `POST /eca/sessions/{id}/save-state` then `/rewind` to restore a clean prefilled prefix.
-9. **Heartbeat / eviction** — REMOVED (2026-09-23): clients live until explicit `DELETE /eca/clients/{id}` or `/eca/shutdown`; the server never evicts.
-10. **Shutdown** — Ctrl+C / process exit cancels the `CancellationTokenSource`; `LlmHttpServer.Dispose` stops the listener and disposes `ClientManager` → `SessionRegistry` → `MultiModelHost` (frees all KV caches + weights).
+1. **Startup** — parse args, load config, build logger, wire Engine+Server, `LoadAll()`, run.
+2. **Model loading** — `MultiModelHost.LoadAll()` → `ModelSlot.Load()` → `NativeInferenceModel.Load(config)`.
+3. **Server run** — `LlmHttpServer.RunAsync` accepts Task per request → `RequestRouter`.
+4. **Client connect** — `POST /eca/clients` → UUID.
+5. **Session creation** — `POST /eca/sessions` → `SessionRegistry.CreateSession` → `SessionContext` (own `IInferenceContext` + `IStandardExecutor`).
+6. **Prefill** — `POST /eca/sessions/{id}/prefill` caches static prefix.
+7. **Inference** — `POST /v1/chat/completions` with `session_id` → `SessionContext.InferAsync` (grammar, vision, anti-prompts, headroom clamp). No `session_id` → stateless.
+8. **Shutdown** — Ctrl+C → dispose clients → sessions → models.
 
 ## Key Constraints
 
-- **One type per file**, one concern per type. Nested helper types stay with their owner
-  (`InferenceReleaser` inside `InferenceScheduler`, `ClientRecord`/`ClientInfo` with `ClientManager`).
-- **Constructor injection throughout** with `ArgumentNullException` guards; no static mutable
-  state. Allowed statics are stateless only (`SseStreamer`, `LlmServerConfig.Load/TryLoad`,
-  `ChatCompletionChunk.Delta/Finish`).
-- **Layered dependencies:** `Server → Engine → Config`; `Models`/`Root` are leaves. No upward deps.
-- **Threading model:** the accept loop is single-threaded but each request runs on its own
-  `Task`; shared state is `ConcurrentDictionary` (`SessionRegistry`, `ClientManager`) or
-  lock-guarded (`VramBudget`). All **inference is serialized** by `InferenceScheduler`
-  (`SemaphoreSlim(1,1)`) — a single model, single active inference.
-- **Resource discipline:** `IDisposable` on every resource-owning type; disposal order in
-  `LlmHttpServer.Dispose` is clients → sessions → models.
-- **GPU/threads/batch_size are server-side** — configured in `llm-server.json`, not in Core.
-- **Core-owned config (v12.11):** when launched by Core, the config path is always passed explicitly and the file is guaranteed by Core's `ServerConfigWriter.EnsureServerConfig` (wizard selections, root-contained paths). Default generation applies only to standalone runs without a config argument. Relative model paths resolve only as `{root}/{path}` or `{root}/models/{filename}`.
-- **No HTTP framework** — `System.Net.HttpListener` + `System.Text.Json` only; the sole
-  external dependency is LLamaSharp.
-- **Error hardening:** `LlmHttpServer` catches `JsonException` → 400 (invalid JSON body),
-  generic exceptions → 500. `RequestRouter` validates empty prompts/text/input → 400,
-  whitespace client names → 400 (`IsNullOrWhiteSpace`), missing sessions → 404.
-- **Integration tests:** 64 tests covering all endpoints (health, clients, sessions, KV cache,
-  chat completions, text completions, embeddings, models, tokenize, error handling, routing).
-- **Warm prompt cache (`EnableWarmPromptCache`) is OFF by default.** Safe and verified on
-  plain-attention models (~9× speedup on Qwen3-8B). On hybrid Gated-DeltaNet models
-  (Qwen3.x-35B-A3B) restored snapshots progressively corrupt output: an upstream llama.cpp bug —
-  `copy_cell` passes a byte count to `ggml_view_1d` (expects elements) during recurrent-state
-  checkpoint/restore (PR #20700, closed unmerged; see issues #21681/#22384). Revisit when the
-  fix lands upstream; until then stateless calls use `StatelessExecutor` cold path.
+- **One type per file**, one concern per type.
+- **Constructor injection throughout** with `ArgumentNullException` guards.
+- **Layered dependencies:** `Server → Engine → Config`; `Models`/`Root` are leaves.
+- **Threading:** accept loop single-threaded, each request on its own `Task`; shared state is `ConcurrentDictionary` or lock-guarded. All inference serialized by `InferenceScheduler`.
+- **Resource discipline:** `IDisposable` on every resource-owning type; disposal order: clients → sessions → models.
+- **No HTTP framework** — `System.Net.HttpListener` + `System.Text.Json` only.
+- **External dependency:** ECAssistantInference (native C/C++ llama.cpp engine, P/Invoked from C#).
 
+## Test Coverage
 
----
-
-## Addendum — 2026-09-24 (Emre-approved batch: cap removal, salvage, KV hygiene)
-
-- **Structured envelope budget is config-driven (v15 max_tokens law).** The former hard 256-token clamp is removed from all three sites: `CreateStructuredInferenceParams` (in-process), the process-backend structured path (`RequestRouter`), and `ProcessSession.InferAsync` grammar branch. Resolution order: request `max_tokens` → per-model catalog (`ModelConfig.MaxTokens`) → global `Inference.MaxTokens`, ceiling `MaxInferenceTokens` (32768). Early-stop on envelope completion remains the actual bound for normal generations; `ClampToSessionHeadroom` still guards shift-incapable models.
-- **`EnvelopeSalvager` (new, `Engine/`, pure static):** gated repair for failed envelope decodes. (1) Balanced extraction — a complete envelope buried under trailing chunk garbage is re-extracted. (2) Truncated-answer repair — when generation burned the budget inside the answer string, the answer value is extracted, degenerate loops are cut at the second 6-word-gram occurrence, trimmed to the last sentence terminator, the document is closed, and it must pass the strict `StructuredDecoder` — a repair that cannot decode is discarded. Toolcalls envelopes are structurally excluded (no `answer` key → 422 as before).
-- **Salvage is wired into both structured catch blocks** (`RequestRouter` in-process + process-backend). Trigger: `InvalidDecisionException` with `earlyStop == false`. On success the router returns `{"decision": repaired}` (200) — Core sees an ordinary decision; the empty-retry cycle (fallback re-decode + rewind + nudge) is skipped entirely.
-- **Salvage KV hygiene — rewind + refeed:** in-process session path: rewind to the pre-generation snapshot, then feed the repaired envelope as prompt (`MaxTokens=1`, single stray sample token, drained). The cache ends holding a clean, closed envelope — no bad example in the model's view. Process backend: transcript rewind + `ProcessSession.AppendAssistantReply(repaired)`; child prefix cache rebuilds naturally next turn.
-- **Accounting note:** `SessionContext.RewindAsync` does not restore `ApproxTokenCount` (pre-existing behavior for all rewinds) — post-salvage usage is a mild over-estimate; safe direction (compaction fires early, never late).
-- **Tests:** `EnvelopeSalvagerTests` (11 cases); `ProcessSessionStructuredTests` clamp test replaced by pass-through assert (`InferAsync_WithGrammar_RespectsRequestedMaxTokens`). LLM suite 261/261.
-
-### KV-hygiene endpoint surface (same batch, Emre-approved)
-
-- **`POST /eca/sessions/{id}/evaluate`** (new): prompt-only feed with bounded sampling (≤ `max_tokens`, default 1, response discarded) without committing a conversation turn. Backed by `SessionContext.EvaluateAsync` (in-process: prompt consumed by executor, accounting included) and `ProcessSession.EvaluateAsync` (process: transient child turn, transcript untouched, child prefix-cache absorbs the prefill). Use cases: repaired-content injection after rewind (salvage follow-up now uses it instead of the MaxTokens=1 InferAsync hack), cache warming of injected context, steering placement. LLamaSharp cannot sample zero tokens — the ≤1 stray sample is documented and bounded.
-- **`GET /eca/sessions/{id}/status` extended**: adds `has_saved_state` (rewind snapshot present — lets Core/tests know a rewind would succeed without attempting it) and `headroom_tokens` (`context − approx`, long math, underflow-safe).
-- **`SessionContext.HasSavedState` / `ProcessSession.HasSavedState`**: new diagnostic properties backing the above.
+- **ECAssistantInference C++:** 43/43 (14 basic + 29 stress)
+- **ECAssistantInference C#:** 51/51
+- **ECAssistantLLM non-model:** 107/107 (config, backends, buffer, ThinkFilter, EnvelopeSalvager)
+- **Total: 201/201**

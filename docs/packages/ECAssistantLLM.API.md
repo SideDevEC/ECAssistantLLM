@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 151  |  LOC: 12763  |  ~6612 tokens
+Types: 151  |  LOC: 12731  |  ~6610 tokens
 
 ---
 
@@ -55,7 +55,6 @@ Cross-package deps: ECAssistant.LLM.Config
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
 
 ### Class: BackendSelector
-> Chooses the execution backend for a model configuration. Ternary-packed models are
 Cross-package deps: ECAssistant.LLM.Config
 
 ### Class: BackendSelectorTests
@@ -81,11 +80,11 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
 
 ### Class: BatchInferenceCoordinator
-> Coordinates <see cref="BatchedExecutor.Infer"/> calls across all active batch sessions.
+> Coordinates batched inference across all active batch sessions.
 Implements: IDisposable
 Constructor:
-  - BatchInferenceCoordinator(BatchedExecutor executor, ILogger logger, string modelId)
-Cross-package deps: LLama, LLama.Batched, LLama.Native
+  - BatchInferenceCoordinator(IInferenceContext context, IConversationPool pool, IVisionEncoder? vision, ILogger logger, string modelId)
+Cross-package deps: ECAssistantInference.Abstractions, ECAssistantInference.Models
 
 ### Class: BatchServerCollection
 > Collection definition for the batch test server fixture.
@@ -98,11 +97,11 @@ Implements: IAsyncLifetime
 Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Server
 
 ### Class: BatchSession
-> Wraps a <see cref="Conversation"/> on a shared <see cref="BatchedExecutor"/>.
+> Wraps an IConversation on a shared IConversationPool.
 Implements: IDisposable
 Constructor:
   - BatchSession(string clientId, string sessionId, string modelId, BatchInferenceCoordinator coordinator, ILogger logger)
-Cross-package deps: LLama, LLama.Batched, LLama.Common, LLama.Native, LLama.Sampling
+Cross-package deps: ECAssistantInference.Abstractions, ECAssistantInference.Models
 
 ### Class: BatchSessionBufferTests
 > Unit tests for the concurrency-hardened buffer system — no model required.
@@ -132,11 +131,11 @@ Constructor:
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: BatchedExecutorHost
-> Owns <see cref="BatchedExecutor"/> instances — one per loaded in-process model —
+> Owns BatchInferenceCoordinator instances — one per loaded in-process model —
 Implements: IDisposable
 Constructor:
   - BatchedExecutorHost(MultiModelHost modelHost, LlmServerConfig config, ILogger logger)
-Cross-package deps: LLama, LLama.Batched, LLama.Common, LLama.Native, ECAssistant.LLM.Config
+Cross-package deps: ECAssistantInference.Abstractions, ECAssistantInference.Models, ECAssistant.LLM.Config
 
 ### Class: ChatCompletionChunk
 > SSE streaming chunk (OpenAI format).
@@ -373,11 +372,11 @@ Implements: IDisposable
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Server
 
 ### Class: ModelSlot
-> One loaded model: weights + params + status.
+> One loaded model: inference model + config + status.
 Implements: IDisposable
 Constructor:
-  - ModelSlot(string id, ModelConfig config, ILogger logger, string rootDir)
-Cross-package deps: LLama, LLama.Common, LLama.Native, ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
+  - ModelSlot(string id, ECAssistant.LLM.Config.ModelConfig config, ILogger logger, string rootDir)
+Cross-package deps: ECAssistantInference.Abstractions, ECAssistantInference.Exceptions, ECAssistantInference.Implementation, ECAssistantInference.Models, ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
 
 ### Class: ModelSmokeE2E
 > Cross-OS model smoke test — runs our REAL server (in-process LLamaSharp path)
@@ -390,15 +389,14 @@ Constructor:
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: MtmdMarkerResolver
-> Retrieves the projector-specific media marker token used by LLamaSharp's MTMD tokenizer.
-Cross-package deps: LLama
+> Resolves the MTMD image marker for vision prompts.
+Cross-package deps: ECAssistantInference.Abstractions
 
 ### Class: MultiModelHost
-> Manages multiple loaded models (at least 2: main + embeddings).
 Implements: IDisposable
 Constructor:
   - MultiModelHost(LlmServerConfig config, ILogger logger, string rootDir, BackendSelector? backendSelector = null)
-Cross-package deps: LLama, ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
 
 ### Class: NativeToolsTests
 > Tests for native OpenAI tools support: schema → GBNF conversion, tool-call
@@ -475,7 +473,7 @@ Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends, ECA
 Implements: IRequestRouter
 Constructor:
   - RequestRouter(MultiModelHost models, SessionRegistry sessions, IInferenceScheduler scheduler, VramBudget vram, IClientManager clients, LlmServerConfig config, ILogger logger, CancellationTokenSource cts, IProcessModelHost? processHost = null, ProcessSessionRegistry? processSessions = null, BatchSessionRegistry? batchSessions = null)
-Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models
+Cross-package deps: ECAssistant.LLM.Config, ECAssistantInference.Abstractions, ECAssistantInference.Models, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Interfaces, ECAssistant.LLM.Models
 
 ### Class: RewindResponse
 > Generic API error response.
@@ -534,11 +532,11 @@ Constructor:
 > Server binding and lifecycle settings.
 
 ### Class: SessionContext
-> Per-session inference state: own InteractiveExecutor + KV cache.
+> Per-session inference state: own executor + KV cache.
 Implements: IDisposable
 Constructor:
-  - SessionContext(string clientId, string sessionId, string modelId, LLamaWeights weights, ModelParams modelParams, InferenceParams inferenceParams, ILogger logger, MtmdWeights? mtmd = null)
-Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config
+  - SessionContext(string clientId, string sessionId, string modelId, IInferenceModel model, ECAssistantInference.Models.ModelConfig modelConfig, ECAssistantInference.Models.ContextConfig ctxConfig, SamplingConfig defaultSampling, ILogger logger, IVisionEncoder? vision = null)
+Cross-package deps: ECAssistantInference.Abstractions, ECAssistantInference.Exceptions, ECAssistantInference.Models, ECAssistant.LLM.Config
 
 ### Class: SessionEvaluateEndpointTests
 > v15 (Emre, 2026-09-24): endpoint tests for the KV-hygiene surface —
@@ -553,11 +551,10 @@ Constructor:
 Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 
 ### Class: SessionRegistry
-> Registry of all client sessions across the server.
 Implements: IDisposable
 Constructor:
   - SessionRegistry(MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger, MultiModelHost modelHost, IInferenceScheduler scheduler, LlmServerConfig config, ILogger logger, VramBudget? vram)
-Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
+Cross-package deps: ECAssistantInference.Models, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
 
 ### Class: ShutdownTests
 > Tests for the /eca/shutdown endpoint.
@@ -651,7 +648,7 @@ Cross-package deps: ECAssistant.LLM.Config
 Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine
 
 ### Class: VulkanAvailabilityProbe
-> Determines whether Vulkan is the GPU backend an in-process LLamaSharp model would use.
+> Determines whether Vulkan would be the GPU backend for in-process inference.
 
 ### Record: GpuLayerDecision
 > Result of a GPU-layer guard decision: the layer count that should actually be used,
@@ -659,10 +656,9 @@ Constructor:
   - GpuLayerDecision(int EffectiveGpuLayers, bool Clamped, string? Reason)
 
 ### Record: ModelInfo
-> Manages multiple loaded models (at least 2: main + embeddings).
 Constructor:
   - ModelInfo(string Id, string Path, bool IsLoaded, bool IsEmbedding, int GpuLayers, uint ContextSize, int EmbeddingDim)
-Cross-package deps: LLama, ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
+Cross-package deps: ECAssistant.LLM.Config, ECAssistant.LLM.Engine.Backends
 
 ### Record: RuntimeAsset
 > One downloadable archive belonging to a backend runtime.
@@ -670,10 +666,9 @@ Constructor:
   - RuntimeAsset(string Url, string Sha256)
 
 ### Record: SessionStatusInfo
-> Registry of all client sessions across the server.
 Constructor:
   - SessionStatusInfo(string ClientId, string SessionId, string ModelId, bool IsPrefilled, int ApproxTokenCount, uint ContextSize, double EstimatedVramMb, DateTime CreatedAt, DateTime LastActivity)
-Cross-package deps: LLama, LLama.Common, LLama.Sampling, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
+Cross-package deps: ECAssistantInference.Models, ECAssistant.LLM.Config, ECAssistant.LLM.Interfaces
 
 ### Record: ToolCall
 > One entry of the OpenAI-native `tools` request field: a function the client

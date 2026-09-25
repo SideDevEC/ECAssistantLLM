@@ -3,14 +3,14 @@
 **Date:** 2026-09-18
 **Goal:** Serve ternary Bonsai-2 models (Qwen3.8-27B ternary, ~5.9 GB) via Prism ML's
 llama.cpp fork, cross-platform (macOS Metal / Windows CUDA / Linux CUDA / CPU fallback),
-alongside the existing stock LLamaSharp path. Stock path remains the default.
+alongside the existing stock ECAssistantInference path. Stock path remains the default.
 
 ## Design Decision
 
 **ProcessBackend** (subprocess supervision of Prism's `llama-server`), not native interop.
-- Prism's ternary kernels exist only in their llama.cpp/MLX forks; stock LLamaSharp refuses the GGUFs.
+- Prism's ternary kernels exist only in their llama.cpp/MLX forks; stock ECAssistantInference refuses the GGUFs.
 - MLX is Apple-only and excluded; the llama.cpp fork covers Metal + CUDA + CPU.
-- Subprocess isolation survives upstream churn on both sides (LLamaSharp ↔ llama.cpp).
+- Subprocess isolation survives upstream churn on both sides (ECAssistantInference ↔ llama.cpp).
 
 ## Class Inventory (one type per file, folder-mirrored namespaces)
 
@@ -22,9 +22,9 @@ alongside the existing stock LLamaSharp path. Stock path remains the default.
     `ternary` / packed formats (`PTQ1_0`, `PQ2_0`) or general.file_type indicates ternary.
   - Stateless utility — no mutable state. Comment: `// Stateless utility — no mutable state`.
 - `Engine/Backends/BackendSelector.cs`
-  - `ModelBackendKind Select(ModelConfig cfg)` → enum `{ LlamaSharp, Process }`
+  - `ModelBackendKind Select(ModelConfig cfg)` → enum `{ Native, Process }`
   - Rule: ternary-detected → Process; explicit `backend` field on ModelConfig overrides;
-    otherwise LlamaSharp.
+    otherwise Native.
 - `Engine/Backends/ModelBackendKind.cs` — enum (file per type rule).
 
 ### Runtime provisioning (per-OS, checksummed, INSTALLED BY THE WIZARD — never downloaded by the server)
@@ -71,13 +71,13 @@ alongside the existing stock LLamaSharp path. Stock path remains the default.
   - ECAssistant session extensions (`/eca/*` KV-cache semantics) are **not available**
     for Process models; router returns 501 with a clear message for those combinations.
     Clients fall back to stateless OpenAI behavior (send full history per request).
-- `Engine/MultiModelHost` (existing, extended): holds slots for LlamaSharp models only;
+- `Engine/MultiModelHost` (existing, extended): holds slots for Native models only;
   Process models are owned by `ProcessModelHost`. Both are consulted for `/v1/models`.
 
 ### Config additions
 
 - `Config/Models/ModelConfig.cs` (existing, extended):
-  - `backend`: `"auto"` (default) | `"llamasharp"` | `"process"`
+  - `backend`: `"auto"` (default) | `"native"` | `"process"`
 - `Config/Models/BackendsSection.cs` (new):
   - `backends_root` (default `<serverRoot>/backends`), `models_root`.
   - NO download flags — the server never downloads.
@@ -87,7 +87,7 @@ alongside the existing stock LLamaSharp path. Stock path remains the default.
 ```
 Program.cs
    └─► Server/LlmHttpServer ─► Server/RequestRouter
-            │                      ├─► Engine/MultiModelHost   (LlamaSharp models, unchanged)
+            │                      ├─► Engine/MultiModelHost   (Native models, unchanged)
             │                      └─► Engine/Backends/ProcessModelHost (proxy models)
             │                                └─► ProcessModelInstance ─► llama-server (Prism fork)
             └─► Engine/Backends/BackendSelector ◄─ TernaryModelDetector
@@ -222,7 +222,7 @@ No more 400 on `session_id`. Port allocation moves to a higher random range.
   session and stateless process requests (grammar via child).
 - `LlmHttpServer`/`Program.cs`: construct and inject `ProcessSessionRegistry`.
 - `ClientManager`: optional `ProcessSessionRegistry` — destroys process sessions on
-  client disconnect/eviction, symmetric with LLamaSharp sessions.
+  client disconnect/eviction, symmetric with ECAssistantInference sessions.
 
 ## Dependency Flow (v2 additions)
 

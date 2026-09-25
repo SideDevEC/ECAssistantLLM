@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-25T07:02:46.469711+00:00
+Generated: 2026-09-25T13:10:53.642284+00:00
 Packages: 2  |  Types: 210
 
 ---
 
-## ECAssistantLLM (151 types, ~12753 LOC)
+## ECAssistantLLM (151 types, ~12731 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -20,7 +20,7 @@ Packages: 2  |  Types: 210
 - 🟡 BatchBackwardCompatTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 BatchChatCompletionTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 BatchConfigTests  (ECAssistantLLM)
-- 🟡 BatchInferenceCoordinator : IDisposable  (ECAssistantLLM)  deps: [BatchedExecutor, ILogger, string]
+- 🟡 BatchInferenceCoordinator : IDisposable  (ECAssistantLLM)  deps: [IInferenceContext, IConversationPool, IVisionEncoder, ILogger, string]
 - 🟡 BatchServerCollection : ICollectionFixture<BatchServerFixture>  (ECAssistantLLM)
 - 🟡 BatchServerFixture : IAsyncLifetime  (ECAssistantLLM)
 - 🟡 BatchSession : IDisposable  (ECAssistantLLM)  deps: [string, string, string, BatchInferenceCoordinator, ILogger]
@@ -127,7 +127,7 @@ Packages: 2  |  Types: 210
 - 🟡 ServerLogTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 ServerLogger : ILogger  (ECAssistantLLM)  deps: [LogLevel minLevel =, string? logFile =]
 - 🟡 ServerSection  (ECAssistantLLM)
-- 🟡 SessionContext : IDisposable  (ECAssistantLLM)  deps: [string, string, string, LLamaWeights, ModelParams, InferenceParams, ILogger, MtmdWeights? mtmd =]
+- 🟡 SessionContext : IDisposable  (ECAssistantLLM)  deps: [string, string, string, IInferenceModel, ModelConfig, ContextConfig, SamplingConfig, ILogger, IVisionEncoder? vision =]
 - 🟡 SessionEvaluateEndpointTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SessionLifecycleTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 SessionRegistry : IDisposable  (ECAssistantLLM)  deps: [MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger, MultiModelHost, IInferenceScheduler, LlmServerConfig, ILogger, VramBudget]

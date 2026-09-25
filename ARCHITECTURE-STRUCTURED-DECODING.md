@@ -4,7 +4,7 @@
 
 ## Why
 - OpenClaw never parses tags: providers enforce structured tool calls via API.
-- LLamaSharp GBNF grammar physically constrains output shape — stronger than prompt discipline.
+- ECAssistantInference GBNF grammar physically constrains output shape — stronger than prompt discipline.
 - Works for any model: local (grammar) or remote (OpenAI native `tool_calls`).
 
 ## Decision Envelope (single JSON contract)
