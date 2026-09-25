@@ -55,7 +55,9 @@ public sealed class BatchedExecutorHost : IDisposable
                 ContextSize = (uint)batchSize,
                 GpuLayerCount = slot.EffectiveGpuLayers,
                 Threads = slot.Config.Threads == -1 ? null : slot.Config.Threads,
-                BatchSize = (uint)Math.Max(batchSize, 512),
+                // Physical batch (n_batch / ubatch): keep small — this is the per-decode
+                // ubatch, NOT the shared KV pool size. ContextSize above carries the pool.
+                BatchSize = 512,
                 FlashAttention = slot.Config.FlashAttn,
             };
 

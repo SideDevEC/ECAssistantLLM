@@ -29,6 +29,12 @@ public sealed class BatchInferenceCoordinator : IDisposable
     private readonly BatchedExecutor _executor;
     private readonly ILogger _logger;
     private readonly string _modelId;
+    // Audit fix (2026-09-25): cycles MUST be serialized. Sessions call RunInferCycleAsync
+    // from their own request threads; without this gate, concurrent cycles race on
+    // TakePendingPrompt (double Prompt → ConversationAlreadyPromptedException) and touch
+    // conversations concurrently. The gate serializes mutation+flush+Infer as ONE atomic
+    // cycle while still batching ALL pending work per cycle.
+    private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private bool _disposed;
 
     /// <summary>Registered sessions — the coordinator iterates this to collect buffers.</summary>
@@ -63,7 +69,7 @@ public sealed class BatchInferenceCoordinator : IDisposable
     }
 
     /// <summary>
-    /// Run one Infer cycle — the core of the buffer system:
+    /// Run one Infer cycle — the core of the buffer system (serialized, one at a time):
     /// 1. Collect all pending mutations (compaction, reset, save) from registered sessions
     /// 2. Apply mutations to conversations (dispose+reload, shiftleft, save state)
     /// 3. Flush all pending prompts to conversations
@@ -77,6 +83,19 @@ public sealed class BatchInferenceCoordinator : IDisposable
         if (_disposed)
             throw new ObjectDisposedException(nameof(BatchInferenceCoordinator));
 
+        await _cycleGate.WaitAsync(ct);
+        try
+        {
+            return await RunInferCycleCoreAsync(ct);
+        }
+        finally
+        {
+            _cycleGate.Release();
+        }
+    }
+
+    private async Task<DecodeResult> RunInferCycleCoreAsync(CancellationToken ct)
+    {
         // Snapshot sessions under lock — quick, no Infer() delay
         List<BatchSession> snapshot;
         lock (_sessionsLock)
@@ -88,50 +107,36 @@ public sealed class BatchInferenceCoordinator : IDisposable
             var mutation = session.TakePendingMutation();
             if (mutation == null) continue;
 
-            switch (mutation.Type)
+            try
             {
-                case PendingMutationType.Save:
-                    try
-                    {
-                        session.ApplySave();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] Save failed: {ex.Message}");
-                    }
-                    break;
-
-                case PendingMutationType.Rewind:
-                    try
-                    {
-                        session.ApplyRewind();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] Rewind failed: {ex.Message}");
-                    }
-                    break;
-
-                case PendingMutationType.Reset:
-                    try
-                    {
-                        session.ApplyReset();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] Reset failed: {ex.Message}");
-                    }
-                    break;
+                switch (mutation.Type)
+                {
+                    case PendingMutationType.Save: session.ApplySave(); break;
+                    case PendingMutationType.Rewind: session.ApplyRewind(); break;
+                    case PendingMutationType.Reset: session.ApplyReset(); break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] {mutation.Type} failed: {ex.Message}");
             }
         }
 
-        // 2. Flush all pending prompts to conversations
+        // 2. Flush all pending prompts to conversations.
+        // Per-session try/catch: one bad prompt (e.g. already-prompted) must not
+        // abort the whole cycle for the other sessions.
         foreach (var session in snapshot)
         {
             var pendingPrompt = session.TakePendingPrompt();
-            if (pendingPrompt != null)
+            if (pendingPrompt == null) continue;
+            try
             {
-                session.ApplyPrompt(pendingPrompt);
+                var pendingImages = session.TakePendingImages();
+                session.ApplyPrompt(pendingPrompt, pendingImages);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn("BatchInferenceCoordinator", $"[{session.Key}] Prompt flush failed: {ex.Message}");
             }
         }
 

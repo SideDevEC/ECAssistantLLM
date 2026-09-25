@@ -174,7 +174,7 @@ void OnLastClientDisconnected()
     cts.Cancel();
 }
 
-var clientManager = new ClientManager(sessionRegistry, config, logger, OnLastClientDisconnected, processSessionRegistry);
+var clientManager = new ClientManager(sessionRegistry, config, logger, OnLastClientDisconnected, processSessionRegistry, batchSessionRegistry);
 
 var server = new LlmHttpServer(config, modelHost, sessionRegistry, scheduler, vramBudget, clientManager, logger, cts, processModelHost, processSessionRegistry, batchSessionRegistry);
 

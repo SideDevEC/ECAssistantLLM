@@ -14,12 +14,14 @@ public sealed class ClientManager : IClientManager, IDisposable
     private readonly ConcurrentDictionary<string, ClientRecord> _clients = new();
     private readonly SessionRegistry _sessionRegistry;
     private readonly Engine.Backends.ProcessSessionRegistry? _processSessionRegistry;
+    private readonly BatchSessionRegistry? _batchSessionRegistry;
     private readonly ILogger _logger;
 
     public ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger)
     {
         _sessionRegistry = sessionRegistry ?? throw new ArgumentNullException(nameof(sessionRegistry));
         _processSessionRegistry = null;
+        _batchSessionRegistry = null;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // Eviction DISABLED (Emre, 2026-09-23): clients live until explicit Disconnect.
         // Idle/briefly-disconnected clients must never 401 mid-session.
@@ -30,13 +32,15 @@ public sealed class ClientManager : IClientManager, IDisposable
         ECAssistant.LLM.Config.LlmServerConfig config,
         ILogger logger,
         Action? onLastClientDisconnected = null,
-        Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null)
+        Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null,
+        BatchSessionRegistry? batchSessionRegistry = null)
     {
         // onLastClientDisconnected is intentionally ignored — the server never
         // self-shuts down anymore. Kept as an optional parameter for call-site
         // compatibility (Program.cs still passes its cts-cancel callback).
         _sessionRegistry = sessionRegistry ?? throw new ArgumentNullException(nameof(sessionRegistry));
         _processSessionRegistry = processSessionRegistry;
+        _batchSessionRegistry = batchSessionRegistry;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         // Eviction DISABLED (Emre, 2026-09-23): clients live until explicit Disconnect.
@@ -73,6 +77,7 @@ public sealed class ClientManager : IClientManager, IDisposable
 
         var freed = _sessionRegistry.DestroyClientSessions(clientId);
         freed += _processSessionRegistry?.DestroyClient(clientId) ?? 0;
+        freed += _batchSessionRegistry?.DestroyClientSessions(clientId) ?? 0;
         _logger.Info("ClientManager", $"Disconnected client '{record.Name}' ({clientId}), freed {freed} session(s)");
 
         return true;

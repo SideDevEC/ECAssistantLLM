@@ -23,6 +23,7 @@ public sealed class BatchServerFixture : IAsyncLifetime
     private LlmHttpServer? _server;
     private LlmHttpServer? _stdServer;  // standard path server for comparison
     private CancellationTokenSource? _cts;
+    private CancellationTokenSource? _stdCts;  // 🔴 separate CTS for the std companion server
     private Task? _serverTask;
     private Task? _stdServerTask;
     private readonly string _configDir = Path.Combine(AppContext.BaseDirectory, "test-config-batch");
@@ -42,7 +43,13 @@ public sealed class BatchServerFixture : IAsyncLifetime
         Client?.Dispose();
         try
         {
+            // 🔴 Audit fix (2026-09-25): the std companion server has its OWN CTS — only the
+            // batch CTS was cancelled here, so the std server's RunAsync parked in
+            // GetContextAsync forever and `await _stdServerTask` deadlocked the whole
+            // xunit teardown (every BatchVsStandardComparison run appeared to hang AFTER
+            // all 8 tests had already passed). Cancel BOTH.
             _cts?.Cancel();
+            _stdCts?.Cancel();
             if (_serverTask != null) { try { await _serverTask.ConfigureAwait(false); } catch { } }
             if (_stdServerTask != null) { try { await _stdServerTask.ConfigureAwait(false); } catch { } }
         }
@@ -130,9 +137,9 @@ public sealed class BatchServerFixture : IAsyncLifetime
         await modelHost.LoadAllAsync();
 
         var sessionRegistry = new SessionRegistry(modelHost, scheduler, config, logger);
-        var stdCts = new CancellationTokenSource();
+        _stdCts = new CancellationTokenSource();
 
-        void OnLastClientDisconnected() => stdCts.Cancel();
+        void OnLastClientDisconnected() => _stdCts?.Cancel();
         var clientManager = new ClientManager(sessionRegistry, config, logger, OnLastClientDisconnected);
 
         var processModelHost = new ProcessModelHost(config, logger, AppContext.BaseDirectory);
@@ -140,9 +147,9 @@ public sealed class BatchServerFixture : IAsyncLifetime
 
         // Standard path: NO batch components (null = standard path)
         _stdServer = new LlmHttpServer(config, modelHost, sessionRegistry, scheduler, vramBudget,
-            clientManager, logger, stdCts, processModelHost, processSessionRegistry, null);
+            clientManager, logger, _stdCts, processModelHost, processSessionRegistry, null);
 
-        _stdServerTask = Task.Run(() => _stdServer.RunAsync(stdCts.Token));
+        _stdServerTask = Task.Run(() => _stdServer.RunAsync(_stdCts.Token));
         await WaitForHealth("http://localhost:8421", _stdServerTask);
     }
 

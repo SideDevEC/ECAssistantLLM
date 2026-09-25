@@ -39,6 +39,10 @@ public sealed class BatchSession : IDisposable
     // ── Buffers (session writes, coordinator reads) ──
     // Pending prompt text — buffered by InferAsync/PrefillAsync, flushed by coordinator
     private string? _pendingPrompt;
+    // Pending vision media — buffered by InferAsync, loaded by coordinator INSIDE the
+    // cycle gate. NEVER touch the shared MtmdWeights on a request thread: the media
+    // queue is FIFO per executor, so cross-thread Load/Clear clobbers other sessions.
+    private IReadOnlyList<byte[]>? _pendingImages;
     // Pending mutation — buffered by SaveStateAsync/RewindAsync/ResetAsync, applied by coordinator
     private PendingMutation? _pendingMutation;
     // Saved state for rewind
@@ -88,6 +92,14 @@ public sealed class BatchSession : IDisposable
         return p;
     }
 
+    /// <summary>Coordinator calls this to take pending vision media. Returns null if none.</summary>
+    internal IReadOnlyList<byte[]>? TakePendingImages()
+    {
+        var img = _pendingImages;
+        _pendingImages = null;
+        return img;
+    }
+
     /// <summary>Coordinator calls this to take the pending mutation. Returns null if none.</summary>
     internal PendingMutation? TakePendingMutation()
     {
@@ -96,10 +108,24 @@ public sealed class BatchSession : IDisposable
         return m;
     }
 
-    /// <summary>Coordinator calls this to flush the prompt to the conversation.</summary>
-    internal void ApplyPrompt(string prompt)
+    /// <summary>Coordinator calls this to flush the prompt to the conversation.
+    /// Vision media is loaded here INSIDE the serialized cycle — the shared
+    /// MtmdWeights media queue must never be touched outside the gate.</summary>
+    internal void ApplyPrompt(string prompt, IReadOnlyList<byte[]>? images = null)
     {
+        if (images is { Count: > 0 })
+        {
+            _mtmd?.ClearMedia();
+            foreach (var img in images)
+                _mtmd?.LoadMedia(img);
+        }
         _conversation.Prompt(prompt);
+        // Media is consumed FIFO at the marker during Prompt() — clear residue so it
+        // can never leak into another session's prompt on a later cycle.
+        if (images is { Count: > 0 })
+        {
+            try { _mtmd?.ClearMedia(); } catch { }
+        }
     }
 
     /// <summary>Coordinator calls this to apply a save mutation.</summary>
@@ -148,26 +174,26 @@ public sealed class BatchSession : IDisposable
         {
             var promptText = ResolveMtmdMarker(text);
 
-            if (_mtmd != null)
-                _mtmd.ClearMedia();
-
             // Buffer the prompt — coordinator will flush + Infer
             _pendingPrompt = promptText;
 
-            await _coordinator.RunInferCycleAsync(ct);
+            var result = await _coordinator.RunInferCycleAsync(ct);
+            if (result != DecodeResult.Ok)
+            {
+                _logger.Error("BatchSession", $"[{Key}] Prefill Infer failed: {result}");
+                return (false, 0, 0);
+            }
 
             _isPrefilled = true;
             _approxTokenCount = EstimateTokenCount(text);
             var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
 
-            try { _mtmd?.ClearMedia(); } catch { }
             _logger.Info("BatchSession", $"[{Key}] Prefilled ~{_approxTokenCount} tokens in {elapsedMs}ms");
             return (true, _approxTokenCount, elapsedMs);
         }
         catch (Exception ex)
         {
             _logger.Error("BatchSession", $"[{Key}] Prefill failed: {ex.Message}");
-            try { _mtmd?.ClearMedia(); } catch { }
             return (false, 0, 0);
         }
     }
@@ -192,24 +218,19 @@ public sealed class BatchSession : IDisposable
         var pipe = (inferenceParams?.SamplingPipeline as DefaultSamplingPipeline)
             ?? CreateDefaultPipeline();
 
-        // Vision: queue media into the projector BEFORE prompting
-        if (_mtmd != null && images is { Count: > 0 })
-        {
-            _mtmd.ClearMedia();
-            foreach (var img in images)
-                _mtmd.LoadMedia(img);
-        }
-
-        // Resolve MTMD marker for vision prompts
+        // Vision: buffer media — coordinator loads it INSIDE the cycle gate.
+        // The MtmdWeights media queue is shared per executor; loading/clearing it on
+        // this request thread would race with other sessions' vision prompts.
         var effectivePrompt = prompt;
         if (_mtmd != null && images is { Count: > 0 })
         {
+            _pendingImages = images;
             var mtmdMarker = GetMtmdMarker();
             effectivePrompt = prompt.Replace(
                 ECAssistant.LLM.Models.ChatMessageContentConverter.DefaultImageMarker,
                 mtmdMarker);
 
-            _logger.Info("BatchSession", $"[{Key}] Vision: {images.Count} media queued");
+            _logger.Info("BatchSession", $"[{Key}] Vision: {images.Count} media buffered");
         }
 
         // Overflow guard: check headroom before generation
@@ -230,7 +251,7 @@ public sealed class BatchSession : IDisposable
         // Check for overflow BEFORE inference
         if (_approxTokenCount >= (int)ContextSize)
         {
-            try { _mtmd?.ClearMedia(); } catch { }
+            _pendingImages = null;
             throw new LLama.Exceptions.ContextOverflowException(
                 $"[{Key}] Context overflowed before generation (approx={_approxTokenCount}, ctx={ContextSize})");
         }
@@ -255,7 +276,7 @@ public sealed class BatchSession : IDisposable
             }
             catch (Exception ex) when (IsContextOverflow(ex))
             {
-                try { _mtmd?.ClearMedia(); } catch { }
+                _pendingImages = null;
                 throw new LLama.Exceptions.ContextOverflowException(
                     $"[{Key}] Context overflowed during generation: {ex.Message}");
             }
@@ -315,7 +336,6 @@ public sealed class BatchSession : IDisposable
         }
 
         _approxTokenCount += EstimateTokenCount(sb.ToString());
-        try { _mtmd?.ClearMedia(); } catch { }
     }
 
     /// <summary>
@@ -381,7 +401,9 @@ public sealed class BatchSession : IDisposable
             if (result != DecodeResult.Ok)
                 return (false, 0, _approxTokenCount);
 
-            // Sample and discard up to maxTokens tokens
+            // Sample and discard up to maxTokens tokens.
+            // Audit fix: each additional sampled token requires its own decode —
+            // sampling N tokens from ONE Infer re-uses stale logits (garbage output).
             var pipe = CreateDefaultPipeline();
             var sampled = 0;
             for (var i = 0; i < maxTokens; i++)
@@ -390,9 +412,14 @@ public sealed class BatchSession : IDisposable
                 {
                     var tokenId = _conversation.Sample(pipe);
                     sampled++;
-                    // Buffer sampled token for next cycle if we need more
+                    // Feed the sampled token back and decode before sampling again
                     if (i < maxTokens - 1)
+                    {
                         _pendingPrompt = _coordinator.Context.DeTokenize(new[] { tokenId });
+                        var cycleResult = await _coordinator.RunInferCycleAsync(ct);
+                        if (cycleResult != DecodeResult.Ok)
+                            break;
+                    }
                 }
                 catch
                 {

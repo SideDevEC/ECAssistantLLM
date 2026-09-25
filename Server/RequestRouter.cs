@@ -579,7 +579,8 @@ public sealed class RequestRouter : IRequestRouter
 
     /// <summary>
     /// Chat completions via the shared BatchedExecutor. Used when continuous_batching=true
-    /// AND the request carries session_mode="batch". Same response shapes as the standard path.
+    /// (all chat completions route through the batch path; sessions resolve from BatchSessionRegistry,
+    /// everything else runs on transient sessions). Same response shapes as the standard path.
     /// </summary>
     private async Task HandleBatchChatAsync(HttpListenerContext ctx, ChatCompletionRequest req, string clientId, CancellationToken ct)
     {
@@ -768,9 +769,7 @@ public sealed class RequestRouter : IRequestRouter
             {
                 var transientId = $"_transient_{Guid.NewGuid():N}";
                 var transient = _batchSessions.CreateSession(clientId, transientId, req.Model);
-                tokenStream = WithCleanup(batchSession != null
-                    ? batchSession.InferAsync(builtPrompt, inferenceParams, ct)
-                    : transient.InferAsync(builtPrompt, inferenceParams, ct),
+                tokenStream = WithCleanup(transient.InferAsync(builtPrompt, inferenceParams, ct),
                     () => _batchSessions.DestroySession(clientId, transientId));
             }
             await SseStreamer.StreamAsync(ctx.Response, tokenStream, req.Model, ct);

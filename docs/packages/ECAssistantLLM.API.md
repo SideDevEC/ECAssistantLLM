@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 151  |  LOC: 12479  |  ~6597 tokens
+Types: 151  |  LOC: 12500  |  ~6609 tokens
 
 ---
 
@@ -181,7 +181,7 @@ Cross-package deps: ECAssistant.LLM.Tests.Fixtures
 > Manages client connections: registration, heartbeat, eviction.
 Implements: IClientManager, IDisposable
 Constructor:
-  - ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected = null, Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null)
+  - ClientManager(SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, SessionRegistry sessionRegistry, ECAssistant.LLM.Config.LlmServerConfig config, ILogger logger, Action? onLastClientDisconnected = null, Engine.Backends.ProcessSessionRegistry? processSessionRegistry = null, BatchSessionRegistry? batchSessionRegistry = null)
 Cross-package deps: ECAssistant.LLM.Interfaces
 
 ### Class: ClientManagerAlwaysAliveTests
