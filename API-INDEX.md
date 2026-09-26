@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantLLM
 
-Generated: 2026-09-26T15:26:20.987143+00:00
+Generated: 2026-09-26T16:07:35.559654+00:00
 Packages: 2  |  Types: 213
 
 ---
 
-## ECAssistantLLM (153 types, ~12972 LOC)
+## ECAssistantLLM (153 types, ~13060 LOC)
 
 - 🔵 IClientManager  (ECAssistantLLM)
 - 🔵 IInferenceScheduler  (ECAssistantLLM)
@@ -23,7 +23,7 @@ Packages: 2  |  Types: 213
 - 🟡 BatchInferenceCoordinator : IDisposable  (ECAssistantLLM)  deps: [IInferenceContext, IConversationPool, IInferenceModel, IVisionEncoder, ILogger, string]
 - 🟡 BatchServerCollection : ICollectionFixture<BatchServerFixture>  (ECAssistantLLM)
 - 🟡 BatchServerFixture : IAsyncLifetime  (ECAssistantLLM)
-- 🟡 BatchSession : IDisposable  (ECAssistantLLM)  deps: [string, string, string, BatchInferenceCoordinator, ILogger]
+- 🟡 BatchSession : IDisposable  (ECAssistantLLM)  deps: [string, string, string, BatchInferenceCoordinator, ILogger, SamplingConfig? samplingDefaults =]
 - 🟡 BatchSessionBufferTests  (ECAssistantLLM)
 - 🟡 BatchSessionLifecycleTests  (ECAssistantLLM)  deps: [TestServerFixture]
 - 🟡 BatchSessionRegistry : IDisposable  (ECAssistantLLM)  deps: [BatchedExecutorHost, LlmServerConfig, ILogger]

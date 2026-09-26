@@ -315,6 +315,31 @@ public sealed class BatchSession : IDisposable
         if (grammar != null)
             _conversation.ResetGrammarState();
 
+        // Prefill: flush the enqueued prompt through the ops FIFO + decode it.
+        // StepAsync is decode-only by design (E) — it never drains op queues, so
+        // the initial prompt MUST be flushed here before the first sample.
+        // Mid-generation mutations still flow through the FIFO and the cycle gate
+        // at generation boundaries (the request gate guarantees this ordering).
+        {
+            InferResult prefill;
+            try { prefill = await _coordinator.RunInferCycleAsync(ct); }
+            catch (Exception ex) when (IsContextOverflow(ex))
+            {
+                throw new InvalidOperationException($"[{Key}] Context overflowed during prefill: {ex.Message}");
+            }
+            var prefillError = TakeLastApplyError();
+            if (prefillError != null)
+            {
+                _logger.Error("BatchSession", $"[{Key}] Prompt flush failed: {prefillError.Message}");
+                throw new InvalidOperationException($"[{Key}] Prompt flush failed: {prefillError.Message}", prefillError);
+            }
+            if (prefill != InferResult.Ok)
+            {
+                _logger.Warn("BatchSession", $"[{Key}] Prefill returned {prefill} — aborting generation");
+                yield break;
+            }
+        }
+
         while (generated < maxTokens)
         {
             if (_retired || _conversationDisposed)

@@ -1,6 +1,6 @@
 # ECAssistantLLM.API.md
 
-Types: 153  |  LOC: 12972  |  ~6678 tokens
+Types: 153  |  LOC: 13060  |  ~6705 tokens
 
 ---
 
@@ -97,9 +97,10 @@ Implements: IAsyncLifetime
 Cross-package deps: ECAssistant.LLM, ECAssistant.LLM.Config, ECAssistant.LLM.Engine, ECAssistant.LLM.Engine.Backends, ECAssistant.LLM.Server
 
 ### Class: BatchSession
+> Sampling params used by the batch decode loop (config-driven).
 Implements: IDisposable
 Constructor:
-  - BatchSession(string clientId, string sessionId, string modelId, BatchInferenceCoordinator coordinator, ILogger logger)
+  - BatchSession(string clientId, string sessionId, string modelId, BatchInferenceCoordinator coordinator, ILogger logger, SamplingConfig? samplingDefaults = null)
 Cross-package deps: ECAssistantInference.Abstractions, ECAssistantInference.Models
 
 ### Class: BatchSessionBufferTests
