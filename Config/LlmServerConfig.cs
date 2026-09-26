@@ -127,7 +127,8 @@ public sealed class LlmServerConfig
                 Temperature = 0.3f,
                 TopP = 0.95f,
                 TopK = 40,
-                RepeatPenalty = 1.1f
+                RepeatPenalty = 1.1f,
+                RepeatLastN = 64
             },
             Logging = new LoggingSection
             {

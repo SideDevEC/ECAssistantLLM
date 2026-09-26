@@ -2346,6 +2346,7 @@ public sealed class RequestRouter : IRequestRouter
             TopP = req.TopP ?? 0.95f,
             TopK = req.TopK ?? 40,
             RepeatPenalty = req.RepeatPenalty ?? 1.1f,
+            RepeatLastN = -1, // engine auto (native default 64)
             MaxTokens = Math.Clamp(req.MaxTokens ?? 1024, 1, MaxInferenceTokens),
             IgnoreEos = true,  // grammar constrains output — don't let EOS end generation prematurely
         };
@@ -2359,6 +2360,7 @@ public sealed class RequestRouter : IRequestRouter
             TopP = req.TopP ?? 0.95f,
             TopK = req.TopK ?? 40,
             RepeatPenalty = req.RepeatPenalty ?? 1.1f,
+            RepeatLastN = -1, // engine auto (native default 64)
             MaxTokens = Math.Clamp(maxTokens, 1, MaxInferenceTokens),
             IgnoreEos = true,
         };
@@ -2379,6 +2381,7 @@ public sealed class RequestRouter : IRequestRouter
             TopP = topP ?? 0.95f,
             TopK = topK ?? 40,
             RepeatPenalty = repeatPenalty ?? 1.1f,
+            RepeatLastN = -1, // engine auto (native default 64)
             MaxTokens = Math.Clamp(maxTokens ?? 512, 1, MaxInferenceTokens),
         };
 

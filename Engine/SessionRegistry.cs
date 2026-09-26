@@ -166,6 +166,7 @@ public sealed class SessionRegistry : IDisposable
         TopP = defaults.TopP,
         TopK = defaults.TopK,
         RepeatPenalty = defaults.RepeatPenalty,
+        RepeatLastN = defaults.RepeatLastN,
         MaxTokens = defaults.MaxTokens,
     };
 

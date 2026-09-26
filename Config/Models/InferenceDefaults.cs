@@ -23,6 +23,16 @@ public sealed class InferenceDefaults
     public float RepeatPenalty { get; set; } = 1.1f;
 
     /// <summary>
+    /// Repeat/present penalty window (tokens). Native engine applies penalties
+    /// over the most recent N tokens of the conversation. -1 = engine auto
+    /// (current native default: 64). Configurable so the anti-repeat window
+    /// is tunable per deployment (larger = stronger cross-turn repetition
+    /// suppression, e.g. for chatty models).
+    /// </summary>
+    [JsonPropertyName("repeat_last_n")]
+    public int RepeatLastN { get; set; } = 64;
+
+    /// <summary>
     /// Max parallel tool calls per response. Bounded in the tool-call GBNF grammar
     /// so the model can never loop objects past this count — an unbounded array
     /// lets low-temp models repeat tool calls until max_tokens truncates the JSON
