@@ -48,7 +48,8 @@ public sealed class BatchSession : IDisposable
         string sessionId,
         string modelId,
         BatchInferenceCoordinator coordinator,
-        ILogger logger)
+        ILogger logger,
+        SamplingConfig? samplingDefaults = null)
     {
         ClientId = clientId ?? throw new ArgumentNullException(nameof(clientId));
         SessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
@@ -62,6 +63,42 @@ public sealed class BatchSession : IDisposable
                 $"Conversation pool exhausted for model '{modelId}' — all {_coordinator.PoolSize} slots in use. " +
                 "Increase max_sessions or reduce concurrent batch sessions.");
         _coordinator.Register(this);
+        _samplingConfig = samplingDefaults ?? new SamplingConfig
+        {
+            Temperature = 0.3f, TopP = 0.95f, TopK = 40,
+            RepeatPenalty = 1.1f, RepeatLastN = 64,
+        };
+    }
+
+    /// <summary>Sampling params used by the batch decode loop (config-driven).</summary>
+    private SamplingConfig _samplingConfig = null!;
+
+    /// <summary>Last token sampled by the coordinator's shared step (set in InternalSampleAndFeed).</summary>
+    internal int LastSampledToken { get; private set; }
+
+    /// <summary>Active grammar for the shared step's sampling (set/cleared by the generation arms).</summary>
+    internal IGrammar? ActiveGrammar { get; set; }
+
+    /// <summary>Per-request sampling (set by generation arms alongside ActiveGrammar;
+    /// falls back to config-driven session defaults when null).</summary>
+    internal SamplingConfig? ActiveSampling { get; set; }
+
+    /// <summary>
+    /// (A+B) Sample ONE token and feed it back TOKEN-NATIVE (no text round-trip),
+    /// WITHOUT decoding. Called by the coordinator's step driver for every ready
+    /// session under the cycle gate; the driver then issues ONE shared InferAll
+    /// for all fed tokens — the batch width is the number of ready sessions.
+    /// Feeds the sampled token unless EOS (the model generated it, so keeping it
+    /// in KV matches the streaming arm's semantics).
+    /// </summary>
+    internal void InternalSampleAndFeed()
+    {
+        var sampling = ActiveSampling ?? _samplingConfig;
+        LastSampledToken = ActiveGrammar != null
+            ? _conversation.SampleWithGrammar(sampling, ActiveGrammar)
+            : _conversation.Sample(sampling);
+        if (!_coordinator.Context.IsEos(LastSampledToken))
+            _conversation.PromptTokens(new[] { LastSampledToken });
     }
 
     internal bool TryDequeueOp(out PendingMutation op) => _ops.TryDequeue(out op!);
@@ -289,7 +326,12 @@ public sealed class BatchSession : IDisposable
             InferResult result;
             try
             {
-                result = await _coordinator.RunInferCycleAsync(ct);
+                // (A) shared decode step: sample ALL ready sessions, feed tokens
+                // back natively, ONE InferAll — deterministic batch width.
+                ActiveGrammar = grammar;
+                ActiveSampling = sampling;
+                try { result = await _coordinator.StepAsync(this, ct); }
+                finally { ActiveGrammar = null; ActiveSampling = null; }
             }
             catch (Exception ex) when (IsContextOverflow(ex))
             {
@@ -302,31 +344,13 @@ public sealed class BatchSession : IDisposable
                 break;
             }
 
-            var applyError = TakeLastApplyError();
-            if (applyError != null)
-            {
-                _logger.Error("BatchSession", $"[{Key}] Prompt flush failed during generation: {applyError.Message}");
-                throw new InvalidOperationException($"[{Key}] Prompt flush failed: {applyError.Message}", applyError);
-            }
-
             if (result != InferResult.Ok)
             {
                 _logger.Warn("BatchSession", $"[{Key}] Infer returned {result} during generation");
                 break;
             }
 
-            int tokenId;
-            try
-            {
-                tokenId = grammar != null
-                    ? _conversation.SampleWithGrammar(sampling, grammar)
-                    : _conversation.Sample(sampling);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warn("BatchSession", $"[{Key}] Sample failed: {ex.Message}");
-                break;
-            }
+            int tokenId = LastSampledToken;
 
             if (_coordinator.Context.IsEos(tokenId))
                 break;
@@ -335,8 +359,6 @@ public sealed class BatchSession : IDisposable
             sb.Append(text);
             generated++;
             yield return text;
-
-            _ops.EnqueuePrompt(text);
         }
 
         _exactTokenCount += CountTokensExact(sb.ToString());
@@ -417,21 +439,19 @@ public sealed class BatchSession : IDisposable
                 if (_retired || _conversationDisposed)
                     return (false, 0, _exactTokenCount);
 
-                var sampling = new SamplingConfig { Temperature = 0.3f, TopK = 40 };
                 var sampled = 0;
                 for (var i = 0; i < maxTokens; i++)
                 {
                     try
                     {
-                        var tokenId = _conversation.Sample(sampling);
+                        // (A) shared step: sampled+fed inside; one InferAll for all ready sessions
+                        var stepResult = await _coordinator.StepAsync(this, ct);
+                        if (stepResult != InferResult.Ok)
+                            break;
+                        var tokenId = LastSampledToken;
                         sampled++;
-                        if (i < maxTokens - 1)
-                        {
-                            _ops.EnqueuePrompt(_coordinator.Context.TokenToPiece(tokenId));
-                            var cycleResult = await _coordinator.RunInferCycleAsync(ct);
-                            if (cycleResult != InferResult.Ok)
-                                break;
-                        }
+                        if (_coordinator.Context.IsEos(tokenId))
+                            break;
                     }
                     catch { break; }
                 }

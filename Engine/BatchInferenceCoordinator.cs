@@ -16,6 +16,12 @@ public sealed class BatchInferenceCoordinator : IDisposable
     private readonly ILogger _logger;
     private readonly string _modelId;
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
+    private readonly object _stepLock = new();
+    private List<BatchSession> _readySessions = new();
+    private TaskCompletionSource<InferResult>? _inflightStep;
+    private List<BatchSession> _snapshotCache = new();
+    private int _sessionsVersion;
+    private int _snapshotVersion;
     private bool _disposed;
 
     private readonly List<BatchSession> _sessions = new();
@@ -49,7 +55,10 @@ public sealed class BatchInferenceCoordinator : IDisposable
     internal void Register(BatchSession session)
     {
         lock (_sessionsLock)
+        {
             _sessions.Add(session);
+            _sessionsVersion++;
+        }
     }
 
     internal void Retire(BatchSession session)
@@ -58,6 +67,7 @@ public sealed class BatchInferenceCoordinator : IDisposable
         {
             _sessions.Remove(session);
             _graveyard.Add(session);
+            _sessionsVersion++;
         }
     }
 
@@ -97,9 +107,17 @@ public sealed class BatchInferenceCoordinator : IDisposable
             }
         }
 
+        // (C) version-guarded snapshot cache — no ToList allocation per cycle
         List<BatchSession> snapshot;
         lock (_sessionsLock)
-            snapshot = _sessions.ToList();
+        {
+            if (_snapshotVersion != _sessionsVersion)
+            {
+                _snapshotCache = _sessions.ToList();
+                _snapshotVersion = _sessionsVersion;
+            }
+            snapshot = _snapshotCache;
+        }
 
         var anyPromptFlushed = false;
         foreach (var session in snapshot)
@@ -134,6 +152,72 @@ public sealed class BatchInferenceCoordinator : IDisposable
         }
 
         return InferResult.Ok;
+    }
+
+    /// <summary>
+    /// (A) Shared decode step: every generating session calls this per token.
+    /// The first session of a "step generation" drives: under the cycle gate it
+    /// samples + token-feeds ALL sessions registered for this step (each session
+    /// uses its own grammar/sampling config), then issues ONE InferAll — the
+    /// decode batch width equals the number of ready sessions. Other sessions
+    /// await the shared result. A lone session steps immediately (batch = 1,
+    /// same latency as before). Sessions arriving mid-step join the next
+    /// generation. Late ops (prompts/mutations) still flow through
+    /// RunInferCycleAsync; this path never touches the graveyard/snapshot drain.
+    /// </summary>
+    internal async Task<InferResult> StepAsync(BatchSession session, CancellationToken ct = default)
+    {
+        TaskCompletionSource<InferResult> tcs;
+        bool driver;
+        lock (_stepLock)
+        {
+            _readySessions.Add(session);
+            if (_inflightStep == null)
+            {
+                _inflightStep = new TaskCompletionSource<InferResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                driver = true;
+            }
+            else
+            {
+                driver = false;
+            }
+            tcs = _inflightStep;
+        }
+
+        if (!driver)
+            return await tcs.Task.WaitAsync(ct);
+
+        await _cycleGate.WaitAsync(ct);
+        try
+        {
+            List<BatchSession> ready;
+            lock (_stepLock)
+            {
+                ready = _readySessions;
+                _readySessions = new List<BatchSession>();
+                _inflightStep = null;   // registrations from now on start the NEXT step
+            }
+
+            var result = InferResult.Ok;
+            foreach (var s in ready)
+            {
+                try { s.InternalSampleAndFeed(); }
+                catch (Exception ex)
+                {
+                    _logger.Warn("BatchInferenceCoordinator", $"[{s.Key}] step sample failed: {ex.Message}");
+                    result = InferResult.Failed;
+                }
+            }
+            var decode = _context.InferAll();
+            if (decode != InferResult.Ok)
+                result = decode;
+            tcs.TrySetResult(result);
+            return result;
+        }
+        finally
+        {
+            _cycleGate.Release();
+        }
     }
 
     internal IConversation? LeaseConversation()
